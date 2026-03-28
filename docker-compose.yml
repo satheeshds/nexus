@@ -8,6 +8,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
 
   # S3 Storage
   minio:
@@ -38,3 +40,4 @@ services:
 
 volumes:
   minio_data:
+  postgres_data:
