@@ -1,7 +1,7 @@
 version: "1"
 catalog:
   type: postgres
-  uri: "postgresql://admin:password@postgres:5432/lake_catalog"
+  uri: "postgresql://${CATALOG_DB_USER}:${CATALOG_DB_PASSWORD}@postgres:5432/lake_catalog"
 
 storage:
   type: s3
