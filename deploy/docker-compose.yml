@@ -58,7 +58,7 @@ services:
   # ── Nexus Control Plane ──────────────────────────────────────────────────────
   nexus-control:
     build:
-      context: .
+      context: ..
       dockerfile: deploy/Dockerfile.control
     restart: unless-stopped
     depends_on:
@@ -88,7 +88,7 @@ services:
   # ── Nexus Query Gateway (pgwire) ─────────────────────────────────────────────
   nexus-gateway:
     build:
-      context: .
+      context: ..
       dockerfile: deploy/Dockerfile.gateway
     restart: unless-stopped
     depends_on:

@@ -1,103 +1,104 @@
 # 🌊 Nexus Lakehouse
 
-Nexus Lakehouse is a high-performance, cost-efficient, and fully multi-tenant analytical platform. By combining the speed of DuckDB with the scalability of MinIO (S3) and the transactional guarantees of DuckLake, Nexus allows you to serve thousands of isolated analytical environments on a single shared infrastructure.
+**Nexus Lakehouse** is a high-performance, cost-efficient, and fully multi-tenant analytical platform. By combining the speed of **DuckDB** with the scalability of **MinIO (S3)** and the transactional guarantees of **DuckLake**, Nexus allows you to serve thousands of isolated analytical environments on a single shared infrastructure.
 
 Think of it as your own self-hosted, "miniature" Snowflake or Databricks, optimized for SaaS multi-tenancy.
 
+---
+
 ## 🏗️ Architecture Overview
 
-Nexus follows the principle of Separation of Storage and Compute:
+Nexus follows the principle of **Separation of Storage and Compute**:
 
-- **Compute Engine:** BoilStream (Rust-based) acting as a multi-tenant DuckDB gateway.
-- **Storage Layer:** MinIO for S3-compatible object storage of Parquet files.
-- **Metadata Catalog:** PostgreSQL for tracking DuckLake snapshots and ACID transactions.
-- **Control Plane:** A Go-based orchestrator for tenant onboarding, IAM provisioning, and JWT issuance.
+- **Compute Gateway (`cmd/gateway`):** A custom Go-based server speaking the Postgres wire protocol. It routes queries to isolated, ephemeral DuckDB sessions.
+- **Control Plane (`cmd/control`):** A Go-based orchestrator responsible for tenant lifecycle management, IAM provisioning on MinIO, and JWT issuance.
+- **Storage Layer:** MinIO for S3-compatible object storage of Parquet/Iceberg files.
+- **Metadata Catalog:** PostgreSQL backing the **DuckLake** ACID-compliant catalog, providing transactional integrity for analytical writes.
+
+---
 
 ## 🚀 Key Features
 
-- **True Multi-Tenancy:** Automated prefix-based isolation in S3 via JWT routing.
-- **ACID on S3:** Transactional integrity for analytical writes using the DuckLake format.
-- **Time Travel:** Query historical snapshots of your data effortlessly.
-- **Zero-Copy Ingestion:** Stream data directly into the lake from S3 or Kafka.
-- **Postgres-Compatible:** Connect any standard BI tool (DBeaver, Tableau, etc.) directly to the gateway.
+- **True Multi-Tenancy:** Automated S3 prefix-based isolation enforced via JWT-scoped sessions.
+- **ACID on S3:** Full transactional integrity for analytical workloads using the DuckLake format.
+- **Compute Isolation:** Per-tenant DuckDB sessions with resource boundaries.
+- **Zero-Copy Ingestion:** Analytical queries directly against S3 data without moving it.
+- **Postgres Compatible:** Use any standard BI tool (DBeaver, Tableau, etc.) directly on port `5433`.
+
+---
 
 ## 🛠️ Prerequisites
 
-Before you begin, ensure you have the following installed:
+- **Docker & Docker Compose**
+- **Go 1.24+** (for local development)
+- **Make** (optional, for shortcuts)
 
-- Docker & Docker Compose
-- Go 1.21+ (for the Control Plane)
-- PostgreSQL Client (`psql`)
-- MinIO Client (`mc`)
+---
 
 ## 🏁 Quick Start
 
-### 1. Set Up Environment Variables
-
-Copy the example env file and set your own credentials:
-
+### 1. Initialize Environment
+Copy the example environment file:
 ```bash
 cp .env.example .env
-# Edit .env and set POSTGRES_USER, POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
 ```
 
-### 2. Spin up the Infrastructure
-
+### 2. Boot the Entire Stack
+The easiest way to start is using the provided `Makefile`:
 ```bash
-docker-compose up -d
+make dev
 ```
+This command starts PostgreSQL, MinIO, and builds/starts both the **Nexus Gateway** and **Control Plane** in Docker.
 
-This starts PostgreSQL (Catalog), MinIO (Storage), and BoilStream (Gateway).
-
-### 3. Configure MinIO
-
-Create the primary bucket for your lakehouse (replace with the values from your `.env`):
-
+### 3. Provision a Tenant
+In a new terminal, register your first tenant:
 ```bash
-mc alias set myminio http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-mc mb myminio/lakehouse
+make demo-register
 ```
+This will output a `tenant_id` and a `token` (JWT).
 
-### 4. Run the Control Plane
+---
 
-```bash
-cd control-plane
-go run main.go
-```
+## 🔐 Connection Guide
 
-## 🔐 Authentication & Usage
-
-### Tenant Registration
-
-Tenants are provisioned via the REST API. This creates their folder in MinIO and registers their DuckLake catalog.
-
-```bash
-curl -X POST http://localhost:8080/api/v1/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "tenant@example.com", "organization_name": "AcmeCorp"}'
-```
-
-### Connecting to Data
-
-Connect to the BoilStream gateway using any Postgres-compatible tool:
+Connect to the **Nexus Gateway** using any Postgres-compatible client:
 
 - **Host:** `localhost`
 - **Port:** `5433`
-- **Username:** `tenant_id` (from registration)
-- **Password:** `<Your_JWT_Token>`
+- **Database:** `lake`
+- **Username:** `<tenant_id>`
+- **Password:** `<JWT_token>`
+
+---
 
 ## 📁 Project Structure
 
 ```text
 .
-├── docker-compose.yml      # Infrastructure stack
-├── boilstream.yaml         # Gateway configuration
-├── .env.example            # Example environment variables
-└── README.md
+├── cmd/
+│   ├── gateway/          # pgwire entrypoint
+│   └── control/          # Management API entrypoint
+├── internal/
+│   ├── gateway/          # Postgres protocol handler
+│   ├── control/          # HTTP API handlers
+│   ├── tenant/           # Provisioning orchestration
+│   ├── pool/             # DuckDB session management
+│   ├── duckdb/           # DuckDB + DuckLake integration
+│   ├── catalog/          # Postgres metadata adapter
+│   ├── auth/             # JWT & IAM logic
+│   ├── config/           # Centralized configuration
+│   └── storage/          # MinIO/S3 interface
+├── migrations/           # PostgreSQL schema migrations
+├── deploy/               # Dockerfiles & Compose config
+├── Makefile              # Development shortcuts
+└── .env.example          # Template for environment variables
 ```
+
+---
 
 ## 📜 License
 
 Distributed under the MIT License.
 
-> **Note:** This project is currently in Alpha. It is intended for development and testing environments.
+> [!WARNING]
+> This project is currently in **Alpha**. It is intended for development and testing. Do not use in production without further security hardening.

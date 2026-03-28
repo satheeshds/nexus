@@ -1,0 +1,35 @@
+gateway:
+  host: "0.0.0.0"
+  port: 5433
+
+control:
+  host: "0.0.0.0"
+  port: 8080
+
+postgres:
+  host: "localhost"
+  port: 5432
+  user: "nexus"
+  password: "changeme"
+  dbname: "lake_catalog"
+  sslmode: "disable"
+
+minio:
+  endpoint:   "localhost:9000"
+  access_key: "minioadmin"
+  secret_key: "changeme"
+  bucket:     "lakehouse"
+  use_ssl:    false
+  use_path_style: true
+
+ducklake:
+  tenant_base_path: "tenants"
+
+auth:
+  jwt_secret:     "supersecretkey_change_in_production_min32chars"
+  token_duration: "24h"
+
+pool:
+  max_sessions_per_tenant: 5
+  session_ttl:             "30m"
+  eviction_interval:       "5m"
