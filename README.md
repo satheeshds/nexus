@@ -92,6 +92,6 @@ Connect to the BoilStream gateway using any Postgres-compatible tool:
 
 ## 📜 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License.
 
 > **Note:** This project is currently in Alpha. It is intended for development and testing environments.
