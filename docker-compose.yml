@@ -4,8 +4,8 @@ services:
     image: postgres:16
     environment:
       POSTGRES_DB: lake_catalog
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5432:5432"
 
