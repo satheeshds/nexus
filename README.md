@@ -32,7 +32,16 @@ Before you begin, ensure you have the following installed:
 
 ## 🏁 Quick Start
 
-### 1. Spin up the Infrastructure
+### 1. Set Up Environment Variables
+
+Copy the example env file and set your own credentials:
+
+```bash
+cp .env.example .env
+# Edit .env and set POSTGRES_USER, POSTGRES_PASSWORD, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD
+```
+
+### 2. Spin up the Infrastructure
 
 ```bash
 docker-compose up -d
@@ -40,16 +49,16 @@ docker-compose up -d
 
 This starts PostgreSQL (Catalog), MinIO (Storage), and BoilStream (Gateway).
 
-### 2. Configure MinIO
+### 3. Configure MinIO
 
-Create the primary bucket for your lakehouse:
+Create the primary bucket for your lakehouse (replace with the values from your `.env`):
 
 ```bash
-mc alias set myminio http://localhost:9000 minioadmin minioadmin
+mc alias set myminio http://localhost:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
 mc mb myminio/lakehouse
 ```
 
-### 3. Run the Control Plane
+### 4. Run the Control Plane
 
 ```bash
 cd control-plane
@@ -81,12 +90,9 @@ Connect to the BoilStream gateway using any Postgres-compatible tool:
 
 ```text
 .
-├── control-plane/          # Go source code for tenant management
-│   ├── api/                # OpenAPI handlers
-│   ├── internal/           # MinIO & BoilStream logic
-│   └── main.go
 ├── docker-compose.yml      # Infrastructure stack
 ├── boilstream.yaml         # Gateway configuration
+├── .env.example            # Example environment variables
 └── README.md
 ```
 
