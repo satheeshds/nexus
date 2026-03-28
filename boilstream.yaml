@@ -1,0 +1,15 @@
+version: "1"
+catalog:
+  type: postgres
+  uri: "postgresql://admin:password@postgres:5432/lake_catalog"
+
+storage:
+  type: s3
+  endpoint: "http://minio:9000"
+  region: "us-east-1"
+  allow_http: true # Required for local MinIO without SSL
+
+tenants:
+  # This enables the multi-tenancy "chroot" logic
+  base_data_path: "s3://lakehouse-bucket/tenants/"
+  auto_setup_ducklake: true
