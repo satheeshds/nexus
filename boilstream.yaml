@@ -11,5 +11,5 @@ storage:
 
 tenants:
   # This enables the multi-tenancy "chroot" logic
-  base_data_path: "s3://lakehouse-bucket/tenants/"
+  base_data_path: "s3://lakehouse/tenants/"
   auto_setup_ducklake: true
