@@ -51,7 +51,6 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Get("/tenants/{id}", s.handleGetTenant)
 			r.Delete("/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/tenants", s.handleListTenants)
-			r.Post("/service-accounts", s.handleCreateServiceAccount) // Internal service account creation
 		})
 	})
 
@@ -68,7 +67,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 type registerRequest struct {
 	OrgName  string `json:"org_name"`
 	Email    string `json:"email"`
-	Password string `json:"password,omitempty"` // Optional: if provided, use as password; otherwise generate API key
+	Password string `json:"password"` // Required: customer login password
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -77,16 +76,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.OrgName == "" || req.Email == "" {
-		writeError(w, http.StatusBadRequest, "org_name and email are required")
+	if req.OrgName == "" || req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "org_name, email, and password are required")
 		return
 	}
 
 	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
-		OrgName:     req.OrgName,
-		Email:       req.Email,
-		Password:    req.Password,
-		AccountType: "customer", // Public registration endpoint only creates customer accounts
+		OrgName:  req.OrgName,
+		Email:    req.Email,
+		Password: req.Password,
 	})
 	if err != nil {
 		slog.Error("register tenant", "err", err)
@@ -94,21 +92,15 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := map[string]string{
-		"tenant_id": resp.TenantID,
-		"token":     resp.Token,
-		"pg_host":   "localhost",
-		"pg_port":   "5433",
-		"pg_user":   resp.TenantID,
-		"pg_pass":   resp.Token,
-	}
-
-	// Only include api_key if it was generated (not when customer provided password)
-	if resp.APIKey != "" {
-		response["api_key"] = resp.APIKey
-	}
-
-	writeJSON(w, http.StatusCreated, response)
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"tenant_id":        resp.TenantID,
+		"token":            resp.Token,
+		"pg_host":          "localhost",
+		"pg_port":          "5433",
+		"pg_user":          resp.TenantID,
+		"service_account":  resp.ServiceID,
+		"service_api_key":  resp.ServiceAPIKey, // shown once; store securely
+	})
 }
 
 type loginRequest struct {
@@ -176,41 +168,6 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, tenants)
-}
-
-type serviceAccountRequest struct {
-	OrgName string `json:"org_name"`
-	Email   string `json:"email"`
-}
-
-func (s *Server) handleCreateServiceAccount(w http.ResponseWriter, r *http.Request) {
-	var req serviceAccountRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if req.OrgName == "" || req.Email == "" {
-		writeError(w, http.StatusBadRequest, "org_name and email are required")
-		return
-	}
-
-	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
-		OrgName:     req.OrgName,
-		Email:       req.Email,
-		AccountType: "service", // This endpoint only creates service accounts
-		// Password is not provided, so an API key will be auto-generated
-	})
-	if err != nil {
-		slog.Error("create service account", "err", err)
-		writeError(w, http.StatusInternalServerError, "provisioning failed")
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, map[string]string{
-		"tenant_id": resp.TenantID,
-		"api_key":   resp.APIKey, // Return the generated API key for the service account
-		"token":     resp.Token,
-	})
 }
 
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {

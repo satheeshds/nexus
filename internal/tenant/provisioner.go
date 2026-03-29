@@ -20,18 +20,17 @@ import (
 
 // RegisterRequest is the input for provisioning a new tenant.
 type RegisterRequest struct {
-	OrgName     string
-	Email       string
-	Password    string // Optional: if provided, use customer's password; otherwise generate API key
-	AccountType string // "customer" (default) or "service"
+	OrgName  string
+	Email    string
+	Password string // Required: customer's login password (bcrypt-hashed before storage)
 }
 
 // RegisterResponse is returned after successful provisioning.
 type RegisterResponse struct {
-	TenantID    string
-	Token       string
-	APIKey      string // plain-text API key – shown once; use for login. Empty if customer provided password.
-	AccountType string
+	TenantID      string
+	Token         string // JWT for immediate use by the customer
+	ServiceID     string // Service account ID used by internal services for data ingestion
+	ServiceAPIKey string // Service account API key – shown once; not visible to customers
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
@@ -62,94 +61,98 @@ func NewProvisioner(
 	}
 }
 
-// Register provisions a new tenant end-to-end.
+// Register provisions a new customer tenant end-to-end.
+// It also automatically creates a paired service account for internal operations
+// (e.g. data ingestion). The service account API key is returned once and must be
+// stored by the caller; it is never visible through customer-facing APIs.
 func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
+	if req.Password == "" {
+		return nil, fmt.Errorf("password is required")
+	}
+
 	tenantID := makeSlug(req.OrgName)
 	s3Prefix := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
 	pgSchema := fmt.Sprintf("ducklake_%s", tenantID)
 
-	// Default to customer account type if not specified
-	accountType := req.AccountType
-	if accountType == "" {
-		accountType = "customer"
-	}
-	if accountType != "customer" && accountType != "service" {
-		return nil, fmt.Errorf("invalid account_type: must be 'customer' or 'service'")
-	}
+	slog.Info("provisioning tenant", "tenant", tenantID)
 
-	slog.Info("provisioning tenant", "tenant", tenantID, "account_type", accountType)
-
-	// Use customer-provided password if given, otherwise generate API key
-	var password string
-	var apiKeyHash []byte
-	var err error
-
-	if req.Password != "" {
-		// Customer provided their own password
-		password = ""
-		apiKeyHash, err = bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return nil, fmt.Errorf("hash password: %w", err)
-		}
-	} else {
-		// Generate a random API key
-		apiKey, err := generateAPIKey()
-		if err != nil {
-			return nil, fmt.Errorf("generate api key: %w", err)
-		}
-		password = apiKey
-		apiKeyHash, err = bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
-		if err != nil {
-			return nil, fmt.Errorf("hash api key: %w", err)
-		}
+	// Hash the customer's password.
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
-	// Step 1: Create Postgres schema for DuckLake metadata
+	// Step 1: Create Postgres schema for DuckLake metadata.
 	if err := p.db.CreateTenantSchema(ctx, pgSchema); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	// Step 2: Initialize DuckLake catalog (writes initial snapshot tables to PG)
+	// Step 2: Initialize DuckLake catalog (writes initial snapshot tables to PG).
 	if err := p.initDuckLake(ctx, tenantID, s3Prefix, pgSchema); err != nil {
-		// Rollback schema on failure
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("init ducklake: %w", err)
 	}
 
-	// Step 3: Provision MinIO service account scoped to tenant prefix
+	// Step 3: Provision MinIO service account scoped to tenant prefix.
 	_, err = p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("provision minio: %w", err)
 	}
 
-	// Step 4: Persist tenant record in catalog (including the API key hash)
-	t := catalog.Tenant{
+	// Step 4: Persist customer tenant record.
+	customer := catalog.Tenant{
 		ID:          tenantID,
 		OrgName:     req.OrgName,
 		Email:       req.Email,
 		S3Prefix:    s3Prefix,
 		PGSchema:    pgSchema,
-		AccountType: accountType,
-		APIKeyHash:  string(apiKeyHash),
+		AccountType: "customer",
+		APIKeyHash:  string(passwordHash),
 		CreatedAt:   time.Now(),
 	}
-	if err := p.db.InsertTenant(ctx, t); err != nil {
-		return nil, fmt.Errorf("insert tenant record: %w", err)
+	if err := p.db.InsertTenant(ctx, customer); err != nil {
+		return nil, fmt.Errorf("insert customer record: %w", err)
 	}
 
-	// Step 5: Issue JWT
+	// Step 5: Auto-create a service account for internal operations (data ingestion, etc.).
+	// The service account shares the same S3 prefix and PG schema as the customer so that
+	// internal services operate in the same data namespace.
+	serviceAPIKey, err := generateAPIKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate service account key: %w", err)
+	}
+	serviceKeyHash, err := bcrypt.GenerateFromPassword([]byte(serviceAPIKey), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash service account key: %w", err)
+	}
+	serviceID := tenantID + "_svc"
+	svcAccount := catalog.Tenant{
+		ID:          serviceID,
+		OrgName:     req.OrgName,
+		Email:       req.Email,
+		S3Prefix:    s3Prefix,
+		PGSchema:    pgSchema,
+		AccountType: "service",
+		APIKeyHash:  string(serviceKeyHash),
+		CreatedAt:   time.Now(),
+	}
+	if err := p.db.InsertTenant(ctx, svcAccount); err != nil {
+		return nil, fmt.Errorf("insert service account record: %w", err)
+	}
+
+	// Step 6: Issue JWT for the customer.
 	token, err := p.auth.Issue(tenantID, req.OrgName, s3Prefix, pgSchema)
 	if err != nil {
 		return nil, fmt.Errorf("issue jwt: %w", err)
 	}
 
-	slog.Info("tenant provisioned", "tenant", tenantID)
+	slog.Info("tenant provisioned", "tenant", tenantID, "service_account", serviceID)
 	return &RegisterResponse{
-		TenantID:    tenantID,
-		Token:       token,
-		APIKey:      password,
-		AccountType: accountType,
+		TenantID:      tenantID,
+		Token:         token,
+		ServiceID:     serviceID,
+		ServiceAPIKey: serviceAPIKey,
 	}, nil
 }
 
