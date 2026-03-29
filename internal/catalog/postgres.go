@@ -98,6 +98,19 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 	return nil
 }
 
+// GetCustomerByEmail retrieves a customer-type tenant by email address.
+func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at
+		FROM tenants WHERE email = $1 AND account_type = 'customer'
+	`, email)
+	var t Tenant
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.AccountType, &t.APIKeyHash, &t.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get tenant by email %q: %w", email, err)
+	}
+	return &t, nil
+}
+
 // ListTenants returns all tenants.
 func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	rows, err := db.pool.Query(ctx, `

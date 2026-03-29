@@ -88,6 +88,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if email is already registered.
+	if _, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email); err == nil {
+		writeError(w, http.StatusConflict, "email already registered")
+		return
+	}
+
 	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
 		OrgName:  req.OrgName,
 		Email:    req.Email,
@@ -105,7 +111,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 type loginRequest struct {
-	TenantID string `json:"tenant_id"`
+	Email    string `json:"email"`
 	Password string `json:"password"` // Customer login password (same value used during registration)
 }
 
@@ -115,14 +121,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.TenantID == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "tenant_id and password are required")
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
 		return
 	}
 
-	t, err := s.catalog.GetTenant(r.Context(), req.TenantID)
+	t, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email)
 	if err != nil {
-		// Return 401 to avoid leaking whether the tenant ID exists.
+		// Return 401 to avoid leaking whether the email exists.
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
