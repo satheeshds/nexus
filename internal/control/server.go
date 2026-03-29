@@ -254,7 +254,7 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		"service_id":     serviceAccount.ID,
 		"s3_prefix":      serviceAccount.S3Prefix,
 		"pg_schema":      serviceAccount.PGSchema,
-		"note":           "API key hash is stored securely; plain key was shown once during registration",
+		"note":           "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
 	})
 }
 
