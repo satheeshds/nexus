@@ -20,15 +20,18 @@ import (
 
 // RegisterRequest is the input for provisioning a new tenant.
 type RegisterRequest struct {
-	OrgName string
-	Email   string
+	OrgName     string
+	Email       string
+	Password    string // Optional: if provided, use customer's password; otherwise generate API key
+	AccountType string // "customer" (default) or "service"
 }
 
 // RegisterResponse is returned after successful provisioning.
 type RegisterResponse struct {
-	TenantID string
-	Token    string
-	APIKey   string // plain-text API key – shown once; use for login
+	TenantID    string
+	Token       string
+	APIKey      string // plain-text API key – shown once; use for login. Empty if customer provided password.
+	AccountType string
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
@@ -62,19 +65,43 @@ func NewProvisioner(
 // Register provisions a new tenant end-to-end.
 func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
 	tenantID := makeSlug(req.OrgName)
-	s3Prefix  := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
-	pgSchema   := fmt.Sprintf("ducklake_%s", tenantID)
+	s3Prefix := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
+	pgSchema := fmt.Sprintf("ducklake_%s", tenantID)
 
-	slog.Info("provisioning tenant", "tenant", tenantID)
-
-	// Generate a random API key (used as the shared secret for login).
-	apiKey, err := generateAPIKey()
-	if err != nil {
-		return nil, fmt.Errorf("generate api key: %w", err)
+	// Default to customer account type if not specified
+	accountType := req.AccountType
+	if accountType == "" {
+		accountType = "customer"
 	}
-	apiKeyHash, err := bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
-	if err != nil {
-		return nil, fmt.Errorf("hash api key: %w", err)
+	if accountType != "customer" && accountType != "service" {
+		return nil, fmt.Errorf("invalid account_type: must be 'customer' or 'service'")
+	}
+
+	slog.Info("provisioning tenant", "tenant", tenantID, "account_type", accountType)
+
+	// Use customer-provided password if given, otherwise generate API key
+	var password string
+	var apiKeyHash []byte
+	var err error
+
+	if req.Password != "" {
+		// Customer provided their own password
+		password = ""
+		apiKeyHash, err = bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("hash password: %w", err)
+		}
+	} else {
+		// Generate a random API key
+		apiKey, err := generateAPIKey()
+		if err != nil {
+			return nil, fmt.Errorf("generate api key: %w", err)
+		}
+		password = apiKey
+		apiKeyHash, err = bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("hash api key: %w", err)
+		}
 	}
 
 	// Step 1: Create Postgres schema for DuckLake metadata
@@ -98,13 +125,14 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 	// Step 4: Persist tenant record in catalog (including the API key hash)
 	t := catalog.Tenant{
-		ID:         tenantID,
-		OrgName:    req.OrgName,
-		Email:      req.Email,
-		S3Prefix:   s3Prefix,
-		PGSchema:   pgSchema,
-		APIKeyHash: string(apiKeyHash),
-		CreatedAt:  time.Now(),
+		ID:          tenantID,
+		OrgName:     req.OrgName,
+		Email:       req.Email,
+		S3Prefix:    s3Prefix,
+		PGSchema:    pgSchema,
+		AccountType: accountType,
+		APIKeyHash:  string(apiKeyHash),
+		CreatedAt:   time.Now(),
 	}
 	if err := p.db.InsertTenant(ctx, t); err != nil {
 		return nil, fmt.Errorf("insert tenant record: %w", err)
@@ -117,7 +145,12 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	slog.Info("tenant provisioned", "tenant", tenantID)
-	return &RegisterResponse{TenantID: tenantID, Token: token, APIKey: apiKey}, nil
+	return &RegisterResponse{
+		TenantID:    tenantID,
+		Token:       token,
+		APIKey:      password,
+		AccountType: accountType,
+	}, nil
 }
 
 // Delete tears down a tenant's catalog, MinIO account, and registry record.

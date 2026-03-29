@@ -51,6 +51,7 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Get("/tenants/{id}", s.handleGetTenant)
 			r.Delete("/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/tenants", s.handleListTenants)
+			r.Post("/service-accounts", s.handleCreateServiceAccount) // Internal service account creation
 		})
 	})
 
@@ -65,8 +66,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 type registerRequest struct {
-	OrgName string `json:"org_name"`
-	Email   string `json:"email"`
+	OrgName  string `json:"org_name"`
+	Email    string `json:"email"`
+	Password string `json:"password,omitempty"` // Optional: if provided, use as password; otherwise generate API key
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -81,8 +83,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
-		OrgName: req.OrgName,
-		Email:   req.Email,
+		OrgName:     req.OrgName,
+		Email:       req.Email,
+		Password:    req.Password,
+		AccountType: "customer", // Public registration endpoint only creates customer accounts
 	})
 	if err != nil {
 		slog.Error("register tenant", "err", err)
@@ -90,15 +94,21 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]string{
+	response := map[string]string{
 		"tenant_id": resp.TenantID,
-		"api_key":   resp.APIKey,
 		"token":     resp.Token,
 		"pg_host":   "localhost",
 		"pg_port":   "5433",
 		"pg_user":   resp.TenantID,
 		"pg_pass":   resp.Token,
-	})
+	}
+
+	// Only include api_key if it was generated (not when customer provided password)
+	if resp.APIKey != "" {
+		response["api_key"] = resp.APIKey
+	}
+
+	writeJSON(w, http.StatusCreated, response)
 }
 
 type loginRequest struct {
@@ -150,16 +160,57 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
+	// Hide service accounts from customer-facing API
+	if t.AccountType == "service" {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
 	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
-	tenants, err := s.catalog.ListTenants(r.Context())
+	// Only list customer accounts (exclude service accounts)
+	tenants, err := s.catalog.ListCustomerTenants(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not list tenants")
 		return
 	}
 	writeJSON(w, http.StatusOK, tenants)
+}
+
+type serviceAccountRequest struct {
+	OrgName string `json:"org_name"`
+	Email   string `json:"email"`
+}
+
+func (s *Server) handleCreateServiceAccount(w http.ResponseWriter, r *http.Request) {
+	var req serviceAccountRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.OrgName == "" || req.Email == "" {
+		writeError(w, http.StatusBadRequest, "org_name and email are required")
+		return
+	}
+
+	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
+		OrgName:     req.OrgName,
+		Email:       req.Email,
+		AccountType: "service", // This endpoint only creates service accounts
+		// Password is not provided, so an API key will be auto-generated
+	})
+	if err != nil {
+		slog.Error("create service account", "err", err)
+		writeError(w, http.StatusInternalServerError, "provisioning failed")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"tenant_id": resp.TenantID,
+		"api_key":   resp.APIKey, // Return the generated API key for the service account
+		"token":     resp.Token,
+	})
 }
 
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
