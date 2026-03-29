@@ -89,7 +89,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if email is already registered.
-	if _, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email); err == nil {
+	if _, err := s.catalog.GetTenantByEmail(r.Context(), req.Email); err == nil {
 		writeError(w, http.StatusConflict, "email already registered")
 		return
 	}
@@ -126,7 +126,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	t, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email)
+	t, err := s.catalog.GetTenantByEmail(r.Context(), req.Email)
 	if err != nil {
 		// Return 401 to avoid leaking whether the email exists.
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
