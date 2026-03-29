@@ -9,16 +9,15 @@ import (
 	"github.com/satheeshds/nexus/internal/config"
 )
 
-// Tenant is the canonical representation of a provisioned tenant.
+// Tenant is the canonical representation of a provisioned customer tenant.
 type Tenant struct {
-	ID          string    `json:"id"`
-	OrgName     string    `json:"org_name"`
-	Email       string    `json:"email"`
-	S3Prefix    string    `json:"s3_prefix"`
-	PGSchema    string    `json:"pg_schema"`
-	AccountType string    `json:"account_type"` // "customer" or "service"
-	APIKeyHash  string    `json:"-"`            // bcrypt hash – never serialised in API responses
-	CreatedAt   time.Time `json:"created_at"`
+	ID           string    `json:"id"`
+	OrgName      string    `json:"org_name"`
+	Email        string    `json:"email"`
+	S3Prefix     string    `json:"s3_prefix"`
+	PGSchema     string    `json:"pg_schema"`
+	PasswordHash string    `json:"-"` // bcrypt hash of customer login password – never serialised in API responses
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // DB wraps a pgxpool and exposes catalog operations.
@@ -67,9 +66,9 @@ func (db *DB) DropTenantSchema(ctx context.Context, pgSchema string) error {
 // InsertTenant stores the tenant record after provisioning is complete.
 func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.AccountType, t.APIKeyHash, t.CreatedAt)
+		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, password_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.PasswordHash, t.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert tenant: %w", err)
 	}
@@ -79,11 +78,11 @@ func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 // GetTenant retrieves a tenant by ID.
 func (db *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
 		FROM tenants WHERE id = $1
 	`, id)
 	var t Tenant
-	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.AccountType, &t.APIKeyHash, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get tenant %q: %w", id, err)
 	}
 	return &t, nil
@@ -145,14 +144,14 @@ func (db *DB) DeleteServiceAccountByTenantID(ctx context.Context, tenantID strin
 	return nil
 }
 
-// GetCustomerByEmail retrieves a customer-type tenant by email address.
+// GetCustomerByEmail retrieves a customer tenant by email address.
 func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at
-		FROM tenants WHERE email = $1 AND account_type = 'customer'
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
+		FROM tenants WHERE email = $1
 	`, email)
 	var t Tenant
-	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.AccountType, &t.APIKeyHash, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get tenant by email %q: %w", email, err)
 	}
 	return &t, nil
@@ -161,7 +160,7 @@ func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, er
 // ListTenants returns all tenants.
 func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
 		FROM tenants ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -172,29 +171,7 @@ func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	var tenants []Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.AccountType, &t.APIKeyHash, &t.CreatedAt); err != nil {
-			return nil, err
-		}
-		tenants = append(tenants, t)
-	}
-	return tenants, nil
-}
-
-// ListCustomerTenants returns only customer-type tenants (excludes service accounts).
-func (db *DB) ListCustomerTenants(ctx context.Context) ([]Tenant, error) {
-	rows, err := db.pool.Query(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, account_type, api_key_hash, created_at
-		FROM tenants WHERE account_type = 'customer' ORDER BY created_at DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("list customer tenants: %w", err)
-	}
-	defer rows.Close()
-
-	var tenants []Tenant
-	for rows.Next() {
-		var t Tenant
-		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.AccountType, &t.APIKeyHash, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		tenants = append(tenants, t)

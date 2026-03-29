@@ -97,14 +97,13 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 	// Step 4: Persist customer tenant record.
 	customer := catalog.Tenant{
-		ID:          tenantID,
-		OrgName:     req.OrgName,
-		Email:       req.Email,
-		S3Prefix:    s3Prefix,
-		PGSchema:    pgSchema,
-		AccountType: "customer",
-		APIKeyHash:  string(passwordHash),
-		CreatedAt:   time.Now(),
+		ID:           tenantID,
+		OrgName:      req.OrgName,
+		Email:        req.Email,
+		S3Prefix:     s3Prefix,
+		PGSchema:     pgSchema,
+		PasswordHash: string(passwordHash),
+		CreatedAt:    time.Now(),
 	}
 	if err := p.db.InsertTenant(ctx, customer); err != nil {
 		// Rollback: deprovision MinIO and drop schema

@@ -133,7 +133,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(t.APIKeyHash), []byte(req.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(t.PasswordHash), []byte(req.Password)); err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			writeError(w, http.StatusUnauthorized, "invalid credentials")
 			return
@@ -159,17 +159,11 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
-	// Hide service accounts from customer-facing API
-	if t.AccountType == "service" {
-		writeError(w, http.StatusNotFound, "tenant not found")
-		return
-	}
 	writeJSON(w, http.StatusOK, t)
 }
 
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
-	// Only list customer accounts (exclude service accounts)
-	tenants, err := s.catalog.ListCustomerTenants(r.Context())
+	tenants, err := s.catalog.ListTenants(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not list tenants")
 		return
