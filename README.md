@@ -57,6 +57,14 @@ make demo-register
 ```
 This will output a `tenant_id` and a `token` (JWT).
 
+Admin credentials are managed as a static API key configured by the platform operator:
+
+Generate a secure key: openssl rand -hex 32
+Set ADMIN_API_KEY=<generated-key> in .env
+The control plane reads it via the NEXUS_AUTH_ADMIN_API_KEY environment variable
+Rotate by updating .env and restarting the control plane
+Platform operators use this key in the X-Admin-API-Key header to access admin endpoints (e.g., GET /api/v1/admin/tenants/{id}/service-account). The key is never stored in the database — it lives only in environment config.
+
 ---
 
 ## 🔐 Connection Guide
