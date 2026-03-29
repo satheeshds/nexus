@@ -20,7 +20,7 @@ services:
 
   # ── Object Storage ───────────────────────────────────────────────────────────
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-01T01-11-10Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
