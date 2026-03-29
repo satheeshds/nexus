@@ -1,4 +1,4 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy
+.PHONY: help build build-gateway build-control dev down migrate test tidy test-infra-up test-infra-down integration-test
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
@@ -65,6 +65,20 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+test-infra-up: ## Start test infrastructure (postgres only, for integration tests)
+	docker compose -f docker-compose.test.yml up -d --wait
+
+test-infra-down: ## Stop and remove test infrastructure
+	docker compose -f docker-compose.test.yml down -v
+
+integration-test: ## Run integration tests against the test postgres (run test-infra-up first)
+	TEST_POSTGRES_HOST=localhost \
+	TEST_POSTGRES_PORT=5433 \
+	TEST_POSTGRES_USER=nexus_test \
+	TEST_POSTGRES_PASSWORD=testpassword \
+	TEST_POSTGRES_DBNAME=lake_catalog_test \
+	go test -tags=integration -v ./internal/catalog/...
 
 tidy: ## Tidy go modules
 	go mod tidy
