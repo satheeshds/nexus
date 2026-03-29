@@ -105,7 +105,7 @@ Attaching from DuckDB:
 ATTACH 'ducklake:postgres:host=pg user=nexus password=xxx dbname=catalog'
   AS acme_lake (
     TYPE DUCKLAKE,
-    SCHEMA 'ducklake_acme',
+    METADATA_SCHEMA 'ducklake_acme',
     DATA_PATH 's3://lakehouse/acme/'
   );
 ```

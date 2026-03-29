@@ -35,6 +35,7 @@ func OpenForTenant(
 	stmts := []string{
 		// Install and load required extensions
 		"INSTALL ducklake; LOAD ducklake;",
+		"INSTALL postgres; LOAD postgres;",
 		"INSTALL httpfs;  LOAD httpfs;",
 
 		// Configure S3/MinIO endpoint globally for this session
@@ -50,12 +51,12 @@ func OpenForTenant(
 
 		// ATTACH the tenant's DuckLake catalog
 		// This creates DuckLake metadata tables in pgSchema if they don't exist yet.
-		fmt.Sprintf(`ATTACH 'ducklake:%s' AS lake (
-			TYPE      DUCKLAKE,
-			SCHEMA    '%s',
-			DATA_PATH 's3://%s/%s/'
+		fmt.Sprintf(`ATTACH 'postgres:%s' AS lake (
+			TYPE            DUCKLAKE,
+			METADATA_SCHEMA '%s',
+			DATA_PATH       's3://%s/%s/'
 		);`,
-			pgCfg.URL(),
+			pgCfg.DSN(),
 			pgSchema,
 			minioCfg.Bucket,
 			s3Prefix,
