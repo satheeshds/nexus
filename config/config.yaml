@@ -30,6 +30,6 @@ auth:
   token_duration: "24h"
 
 pool:
-  max_sessions_per_tenant: 5
+  max_idle_sessions:       5
   session_ttl:             "30m"
   eviction_interval:       "5m"

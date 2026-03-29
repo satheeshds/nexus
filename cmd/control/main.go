@@ -66,12 +66,12 @@ func main() {
 
 	// Tenant provisioner
 	provisioner := tenant.NewProvisioner(
-		catalogDB, storageClient, authSvc,
+		catalogDB, storageClient,
 		cfg.Postgres, cfg.MinIO, cfg.DuckLake,
 	)
 
 	// HTTP control plane server
-	srv := control.NewServer(provisioner, catalogDB, authSvc)
+	srv := control.NewServer(provisioner, catalogDB, authSvc, cfg.Auth.AdminAPIKey)
 	addr := fmt.Sprintf("%s:%d", cfg.Control.Host, cfg.Control.Port)
 	httpServer := &http.Server{
 		Addr:         addr,

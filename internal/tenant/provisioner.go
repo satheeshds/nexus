@@ -2,107 +2,150 @@ package tenant
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/duckdb"
 	"github.com/satheeshds/nexus/internal/storage"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterRequest is the input for provisioning a new tenant.
 type RegisterRequest struct {
-	OrgName string
-	Email   string
+	OrgName  string
+	Email    string
+	Password string // Required: customer's login password (bcrypt-hashed before storage)
 }
 
 // RegisterResponse is returned after successful provisioning.
 type RegisterResponse struct {
-	TenantID string
-	Token    string
+	TenantID  string
+	ServiceID string // Service account ID used by internal services for data ingestion
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
 type Provisioner struct {
-	db      *catalog.DB
-	store   *storage.Client
-	auth    *auth.Service
-	pgCfg   config.PostgresConfig
+	db       *catalog.DB
+	store    *storage.Client
+	pgCfg    config.PostgresConfig
 	minioCfg config.MinIOConfig
-	dlCfg   config.DuckLakeConfig
+	dlCfg    config.DuckLakeConfig
 }
 
 func NewProvisioner(
 	db *catalog.DB,
 	store *storage.Client,
-	authSvc *auth.Service,
 	pgCfg config.PostgresConfig,
 	minioCfg config.MinIOConfig,
 	dlCfg config.DuckLakeConfig,
 ) *Provisioner {
 	return &Provisioner{
-		db:      db,
-		store:   store,
-		auth:    authSvc,
-		pgCfg:   pgCfg,
+		db:       db,
+		store:    store,
+		pgCfg:    pgCfg,
 		minioCfg: minioCfg,
-		dlCfg:   dlCfg,
+		dlCfg:    dlCfg,
 	}
 }
 
-// Register provisions a new tenant end-to-end.
+// Register provisions a new customer tenant end-to-end.
+// It also automatically creates a paired service account for internal operations
+// (e.g. data ingestion). The service account API key is returned once and must be
+// stored by the caller; it is never visible through customer-facing APIs.
 func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
+	if req.Password == "" {
+		return nil, fmt.Errorf("password is required")
+	}
+
 	tenantID := makeSlug(req.OrgName)
-	s3Prefix  := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
-	pgSchema   := fmt.Sprintf("ducklake_%s", tenantID)
+	s3Prefix := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
+	pgSchema := fmt.Sprintf("ducklake_%s", tenantID)
 
 	slog.Info("provisioning tenant", "tenant", tenantID)
 
-	// Step 1: Create Postgres schema for DuckLake metadata
+	// Hash the customer's password.
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+
+	// Step 1: Create Postgres schema for DuckLake metadata.
 	if err := p.db.CreateTenantSchema(ctx, pgSchema); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	// Step 2: Initialize DuckLake catalog (writes initial snapshot tables to PG)
+	// Step 2: Initialize DuckLake catalog (writes initial snapshot tables to PG).
 	if err := p.initDuckLake(ctx, tenantID, s3Prefix, pgSchema); err != nil {
-		// Rollback schema on failure
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("init ducklake: %w", err)
 	}
 
-	// Step 3: Provision MinIO service account scoped to tenant prefix
-	_, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
+	// Step 3: Provision MinIO service account scoped to tenant prefix.
+	minioCreds, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("provision minio: %w", err)
 	}
+	minioAccessKey := minioCreds.AccessKey
 
-	// Step 4: Persist tenant record in catalog
-	t := catalog.Tenant{
-		ID:        tenantID,
-		OrgName:   req.OrgName,
-		Email:     req.Email,
-		S3Prefix:  s3Prefix,
-		PGSchema:  pgSchema,
-		CreatedAt: time.Now(),
+	// Step 4: Persist customer tenant record.
+	customer := catalog.Tenant{
+		ID:           tenantID,
+		OrgName:      req.OrgName,
+		Email:        req.Email,
+		S3Prefix:     s3Prefix,
+		PGSchema:     pgSchema,
+		PasswordHash: string(passwordHash),
+		CreatedAt:    time.Now(),
 	}
-	if err := p.db.InsertTenant(ctx, t); err != nil {
-		return nil, fmt.Errorf("insert tenant record: %w", err)
+	if err := p.db.InsertTenant(ctx, customer); err != nil {
+		// Rollback: deprovision MinIO and drop schema
+		_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
+		_ = p.db.DropTenantSchema(ctx, pgSchema)
+		return nil, fmt.Errorf("insert customer record: %w", err)
 	}
 
-	// Step 5: Issue JWT
-	token, err := p.auth.Issue(tenantID, req.OrgName, s3Prefix, pgSchema)
+	// Step 5: Auto-create a service account for internal operations (data ingestion, etc.).
+	// The service account shares the same S3 prefix and PG schema as the customer so that
+	// internal services operate in the same data namespace.
+	serviceAPIKey, err := generateAPIKey()
 	if err != nil {
-		return nil, fmt.Errorf("issue jwt: %w", err)
+		return nil, fmt.Errorf("generate service account key: %w", err)
+	}
+	serviceKeyHash, err := bcrypt.GenerateFromPassword([]byte(serviceAPIKey), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash service account key: %w", err)
+	}
+	serviceID := tenantID + "_svc"
+	svcAccount := catalog.ServiceAccount{
+		ID:             serviceID,
+		TenantID:       tenantID,
+		S3Prefix:       s3Prefix,
+		PGSchema:       pgSchema,
+		MinioAccessKey: minioAccessKey,
+		APIKeyHash:     string(serviceKeyHash),
+		CreatedAt:      time.Now(),
+	}
+	if err := p.db.InsertServiceAccount(ctx, svcAccount); err != nil {
+		// Rollback: delete customer record, deprovision MinIO, drop schema
+		_ = p.db.DeleteTenant(ctx, tenantID)
+		_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
+		_ = p.db.DropTenantSchema(ctx, pgSchema)
+		return nil, fmt.Errorf("insert service account record: %w", err)
 	}
 
-	slog.Info("tenant provisioned", "tenant", tenantID)
-	return &RegisterResponse{TenantID: tenantID, Token: token}, nil
+	slog.Info("tenant provisioned", "tenant", tenantID, "service_account", serviceID)
+	return &RegisterResponse{
+		TenantID:  tenantID,
+		ServiceID: serviceID,
+	}, nil
 }
 
 // Delete tears down a tenant's catalog, MinIO account, and registry record.
@@ -112,12 +155,22 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("get tenant: %w", err)
 	}
 
+	// Look up the service account to get the MinIO access key for deprovisioning.
+	svcAccount, err := p.db.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get service account: %w", err)
+	}
+
+	// Tear down storage (MinIO) for this tenant.
+	if err := p.store.DeprovisionTenant(ctx, svcAccount.MinioAccessKey); err != nil {
+		return fmt.Errorf("deprovision storage: %w", err)
+	}
 	// Drop DuckLake schema (cascade removes all metadata)
 	if err := p.db.DropTenantSchema(ctx, t.PGSchema); err != nil {
 		return fmt.Errorf("drop schema: %w", err)
 	}
 
-	// Remove tenant record
+	// Remove tenant record (service_accounts row is removed by ON DELETE CASCADE)
 	if err := p.db.DeleteTenant(ctx, tenantID); err != nil {
 		return fmt.Errorf("delete tenant record: %w", err)
 	}
@@ -158,4 +211,13 @@ func makeSlug(orgName string) string {
 	// Suffix with short UUID to ensure uniqueness
 	short := uuid.New().String()[:8]
 	return fmt.Sprintf("%s_%s", slug, short)
+}
+
+// generateAPIKey returns a cryptographically random 32-byte hex string.
+func generateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

@@ -15,6 +15,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.77
 	github.com/pressly/goose/v3 v3.21.1
 	github.com/spf13/viper v1.19.0
+	golang.org/x/crypto v0.47.0
 )
 
 require (
@@ -84,7 +85,6 @@ require (
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/mod v0.32.0 // indirect
 	golang.org/x/net v0.49.0 // indirect

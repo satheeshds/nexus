@@ -9,14 +9,15 @@ import (
 	"github.com/satheeshds/nexus/internal/config"
 )
 
-// Tenant is the canonical representation of a provisioned tenant.
+// Tenant is the canonical representation of a provisioned customer tenant.
 type Tenant struct {
-	ID        string
-	OrgName   string
-	Email     string
-	S3Prefix  string
-	PGSchema  string
-	CreatedAt time.Time
+	ID           string    `json:"id"`
+	OrgName      string    `json:"org_name"`
+	Email        string    `json:"email"`
+	S3Prefix     string    `json:"s3_prefix"`
+	PGSchema     string    `json:"pg_schema"`
+	PasswordHash string    `json:"-"` // bcrypt hash of customer login password – never serialised in API responses
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // DB wraps a pgxpool and exposes catalog operations.
@@ -65,9 +66,9 @@ func (db *DB) DropTenantSchema(ctx context.Context, pgSchema string) error {
 // InsertTenant stores the tenant record after provisioning is complete.
 func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.CreatedAt)
+		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, password_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.PasswordHash, t.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert tenant: %w", err)
 	}
@@ -77,11 +78,11 @@ func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 // GetTenant retrieves a tenant by ID.
 func (db *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
 		FROM tenants WHERE id = $1
 	`, id)
 	var t Tenant
-	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get tenant %q: %w", id, err)
 	}
 	return &t, nil
@@ -96,10 +97,70 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 	return nil
 }
 
+// ServiceAccount represents a service account linked to a customer tenant.
+// Service accounts are used by internal services (e.g., data ingestion pipelines)
+// to access the tenant's data namespace.
+type ServiceAccount struct {
+	ID             string    `json:"id"`
+	TenantID       string    `json:"tenant_id"`
+	S3Prefix       string    `json:"s3_prefix"`
+	PGSchema       string    `json:"pg_schema"`
+	MinioAccessKey string    `json:"-"` // stored for deprovisioning; never exposed in API responses
+	APIKeyHash     string    `json:"-"` // bcrypt hash; never exposed
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// InsertServiceAccount stores a new service account record.
+func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
+	_, err := db.pool.Exec(ctx, `
+		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.APIKeyHash, sa.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert service account: %w", err)
+	}
+	return nil
+}
+
+// GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
+func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at
+		FROM service_accounts WHERE tenant_id = $1
+	`, tenantID)
+	var sa ServiceAccount
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
+	}
+	return &sa, nil
+}
+
+// DeleteServiceAccountByTenantID removes the service account for a given customer tenant.
+func (db *DB) DeleteServiceAccountByTenantID(ctx context.Context, tenantID string) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM service_accounts WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return fmt.Errorf("delete service account for tenant %q: %w", tenantID, err)
+	}
+	return nil
+}
+
+// GetCustomerByEmail retrieves a customer tenant by email address.
+func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
+		FROM tenants WHERE email = $1
+	`, email)
+	var t Tenant
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get tenant by email %q: %w", email, err)
+	}
+	return &t, nil
+}
+
 // ListTenants returns all tenants.
 func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
 		FROM tenants ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -110,7 +171,7 @@ func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	var tenants []Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		tenants = append(tenants, t)

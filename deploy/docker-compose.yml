@@ -20,7 +20,7 @@ services:
 
   # ── Object Storage ───────────────────────────────────────────────────────────
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-11-01T01-11-10Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -79,6 +79,7 @@ services:
       NEXUS_MINIO_SECRET_KEY:  ${MINIO_ROOT_PASSWORD:-changeme}
       NEXUS_MINIO_BUCKET:      ${LAKEHOUSE_BUCKET:-lakehouse}
       NEXUS_AUTH_JWT_SECRET:   ${JWT_SECRET:-supersecretkey_change_in_production}
+      NEXUS_AUTH_ADMIN_API_KEY: ${ADMIN_API_KEY:-changeme_admin}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 10s

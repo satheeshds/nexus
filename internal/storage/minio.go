@@ -57,11 +57,11 @@ type TenantCredentials struct {
 
 // ProvisionTenant creates a MinIO service account scoped to the tenant's S3 prefix.
 func (c *Client) ProvisionTenant(ctx context.Context, tenantID, s3Prefix string) (*TenantCredentials, error) {
-	// policy := c.buildPolicy(s3Prefix)
+	policy := c.buildPolicy(s3Prefix)
 
-	slog.Debug("creating minio service account", "tenant", tenantID, "endpoint", c.cfg.Endpoint, "accessKey", c.cfg.AccessKey)
+	slog.Debug("creating minio service account", "tenant", tenantID, "endpoint", c.cfg.Endpoint)
 	resp, err := c.admin.AddServiceAccount(ctx, madmin.AddServiceAccountReq{
-		// Policy:      json.RawMessage(policy),
+		Policy:      []byte(policy),
 		Description: fmt.Sprintf("nexus-tenant-%s", tenantID),
 	})
 	if err != nil {

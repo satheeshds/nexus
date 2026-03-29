@@ -34,10 +34,10 @@ logs: ## Follow logs for all services
 # ── Database ──────────────────────────────────────────────────────────────────
 
 migrate: ## Run pending migrations
-	goose -dir migrations postgres "$(shell grep POSTGRES . env | cut -d= -f2)" up
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" up
 
 migrate-status: ## Show migration status
-	goose -dir migrations postgres "$(shell grep POSTGRES .env | cut -d= -f2)" status
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" status
 
 # ── Development helpers ───────────────────────────────────────────────────────
 
@@ -77,7 +77,7 @@ lint: ## Run golangci-lint
 demo-register: ## Register a demo tenant (requires control plane running)
 	curl -s -X POST http://localhost:8080/api/v1/register \
 	  -H "Content-Type: application/json" \
-	  -d "{\"org_name\":\"Acme Corp\",\"email\":\"admin@acme.com\"}" | jq .
+	  -d "{\"org_name\":\"Acme Corp\",\"email\":\"admin@acme.com\",\"password\":\"$${DEMO_PASSWORD:-changeme}\"}" | jq .
 
 demo-health: ## Check control plane health
 	curl -s http://localhost:8080/healthz | jq .

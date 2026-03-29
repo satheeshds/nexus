@@ -67,9 +67,33 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	sm, ok := startupMsg.(*pgproto3.StartupMessage)
-	if !ok {
-		// SSL or cancel requests — not supported yet
+	var sm *pgproto3.StartupMessage
+
+	switch msg := startupMsg.(type) {
+	case *pgproto3.StartupMessage:
+		sm = msg
+	case *pgproto3.SSLRequest:
+		// SSL is not supported; respond with 'N' as per PostgreSQL protocol
+		if _, err := conn.Write([]byte("N")); err != nil {
+			slog.Warn("gateway: failed to write SSL denial", "err", err)
+			return
+		}
+
+		// Read the real startup message after SSL negotiation attempt
+		startupMsg, err = backend.ReceiveStartupMessage()
+		if err != nil {
+			slog.Warn("gateway: startup error after SSLRequest", "err", err)
+			return
+		}
+
+		var ok bool
+		sm, ok = startupMsg.(*pgproto3.StartupMessage)
+		if !ok {
+			slog.Warn("gateway: unexpected startup message type after SSLRequest")
+			return
+		}
+	default:
+		// Cancel or other unexpected requests — not supported yet
 		slog.Warn("gateway: unexpected startup message type")
 		return
 	}

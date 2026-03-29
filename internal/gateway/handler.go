@@ -89,8 +89,18 @@ func (h *handler) handleQuery(ctx context.Context, query string) {
 	rowCount := 0
 	for rows.Next() {
 		if err := rows.Scan(scanPtrs...); err != nil {
-			slog.Warn("gateway: row scan error", "err", err)
-			continue
+			slog.Warn("gateway: row scan error", "tenant", h.session.TenantID, "row", rowCount, "err", err)
+			if sendErr := h.backend.Send(&pgproto3.ErrorResponse{
+				Severity: "ERROR",
+				Code:     "XX000",
+				Message:  fmt.Sprintf("row scan error at row %d: %v", rowCount, err),
+			}); sendErr != nil {
+				slog.Warn("gateway: failed to send scan error response", "err", sendErr)
+			}
+			if sendErr := h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'}); sendErr != nil {
+				slog.Warn("gateway: failed to send ReadyForQuery after scan error", "err", sendErr)
+			}
+			return
 		}
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(cols))}
 		for i, v := range vals {

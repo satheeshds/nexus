@@ -2,6 +2,7 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/tenant"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Server struct {
@@ -17,10 +19,11 @@ type Server struct {
 	provisioner *tenant.Provisioner
 	catalog     *catalog.DB
 	auth        *auth.Service
+	adminAPIKey string
 }
 
-func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service) *Server {
-	s := &Server{provisioner: p, catalog: db, auth: a}
+func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service, adminAPIKey string) *Server {
+	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey}
 	s.router = s.buildRouter()
 	return s
 }
@@ -50,6 +53,12 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Delete("/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/tenants", s.handleListTenants)
 		})
+
+		// Admin endpoints
+		r.Group(func(r chi.Router) {
+			r.Use(s.adminMiddleware)
+			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
+		})
 	})
 
 	return r
@@ -63,8 +72,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 type registerRequest struct {
-	OrgName string `json:"org_name"`
-	Email   string `json:"email"`
+	OrgName  string `json:"org_name"`
+	Email    string `json:"email"`
+	Password string `json:"password"` // Required: customer login password
 }
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -73,14 +83,21 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.OrgName == "" || req.Email == "" {
-		writeError(w, http.StatusBadRequest, "org_name and email are required")
+	if req.OrgName == "" || req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "org_name, email, and password are required")
+		return
+	}
+
+	// Check if email is already registered.
+	if _, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email); err == nil {
+		writeError(w, http.StatusConflict, "email already registered")
 		return
 	}
 
 	resp, err := s.provisioner.Register(r.Context(), tenant.RegisterRequest{
-		OrgName: req.OrgName,
-		Email:   req.Email,
+		OrgName:  req.OrgName,
+		Email:    req.Email,
+		Password: req.Password,
 	})
 	if err != nil {
 		slog.Error("register tenant", "err", err)
@@ -90,17 +107,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"tenant_id": resp.TenantID,
-		"token":     resp.Token,
-		"pg_host":   "localhost",
-		"pg_port":   "5433",
-		"pg_user":   resp.TenantID,
-		"pg_pass":   resp.Token,
 	})
 }
 
 type loginRequest struct {
-	TenantID string `json:"tenant_id"`
-	Password string `json:"password"` // shared secret or API key (future)
+	Email    string `json:"email"`
+	Password string `json:"password"` // Customer login password (same value used during registration)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -109,10 +121,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.Email == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "email and password are required")
+		return
+	}
 
-	t, err := s.catalog.GetTenant(r.Context(), req.TenantID)
+	t, err := s.catalog.GetCustomerByEmail(r.Context(), req.Email)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "tenant not found")
+		// Return 401 to avoid leaking whether the email exists.
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(t.PasswordHash), []byte(req.Password)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		slog.Error("bcrypt compare", "err", err)
+		writeError(w, http.StatusInternalServerError, "authentication error")
 		return
 	}
 
@@ -168,6 +195,52 @@ func (s *Server) jwtMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-Admin-API-Key")
+		if apiKey == "" {
+			writeError(w, http.StatusUnauthorized, "missing admin API key")
+			return
+		}
+		if apiKey != s.adminAPIKey {
+			writeError(w, http.StatusUnauthorized, "invalid admin API key")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ── Admin Handlers ────────────────────────────────────────────────────────────
+
+func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "id")
+	if tenantID == "" {
+		writeError(w, http.StatusBadRequest, "tenant ID is required")
+		return
+	}
+
+	// Ensure the customer tenant exists
+	if _, err := s.catalog.GetTenant(r.Context(), tenantID); err != nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	// Retrieve the associated service account from the dedicated table
+	svcAccount, err := s.catalog.GetServiceAccountByTenantID(r.Context(), tenantID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "service account not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"tenant_id":  tenantID,
+		"service_id": svcAccount.ID,
+		"s3_prefix":  svcAccount.S3Prefix,
+		"pg_schema":  svcAccount.PGSchema,
+		"note":       "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
 	})
 }
 
