@@ -1,1 +1,9 @@
 .env
+
+# Binaries
+control
+gateway
+*.exe
+*.dll
+*.so
+*.dylib

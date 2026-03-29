@@ -68,6 +68,7 @@ type DuckLakeConfig struct {
 type AuthConfig struct {
 	JWTSecret     string        `mapstructure:"jwt_secret"`
 	TokenDuration time.Duration `mapstructure:"token_duration"`
+	AdminAPIKey   string        `mapstructure:"admin_api_key"` // For platform operator endpoints
 }
 
 type PoolConfig struct {
@@ -131,6 +132,7 @@ func Load() (*Config, error) {
 	v.BindEnv("minio.secret_key", "NEXUS_MINIO_SECRET_KEY")
 	v.BindEnv("minio.bucket", "NEXUS_MINIO_BUCKET")
 	v.BindEnv("auth.jwt_secret", "NEXUS_AUTH_JWT_SECRET")
+	v.BindEnv("auth.admin_api_key", "NEXUS_AUTH_ADMIN_API_KEY")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

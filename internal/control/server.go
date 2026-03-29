@@ -19,10 +19,11 @@ type Server struct {
 	provisioner *tenant.Provisioner
 	catalog     *catalog.DB
 	auth        *auth.Service
+	adminAPIKey string
 }
 
-func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service) *Server {
-	s := &Server{provisioner: p, catalog: db, auth: a}
+func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service, adminAPIKey string) *Server {
+	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey}
 	s.router = s.buildRouter()
 	return s
 }
@@ -51,6 +52,12 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Get("/tenants/{id}", s.handleGetTenant)
 			r.Delete("/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/tenants", s.handleListTenants)
+		})
+
+		// Admin endpoints
+		r.Group(func(r chi.Router) {
+			r.Use(s.adminMiddleware)
+			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
 		})
 	})
 
@@ -93,13 +100,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"tenant_id":        resp.TenantID,
-		"token":            resp.Token,
-		"pg_host":          "localhost",
-		"pg_port":          "5433",
-		"pg_user":          resp.TenantID,
-		"service_account":  resp.ServiceID,
-		"service_api_key":  resp.ServiceAPIKey, // shown once; store securely
+		"tenant_id": resp.TenantID,
+		"token":     resp.Token,
+		"pg_host":   "localhost",
+		"pg_port":   "5433",
+		"pg_user":   resp.TenantID,
 	})
 }
 
@@ -194,6 +199,60 @@ func (s *Server) jwtMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiKey := r.Header.Get("X-Admin-API-Key")
+		if apiKey == "" {
+			writeError(w, http.StatusUnauthorized, "missing admin API key")
+			return
+		}
+		if apiKey != s.adminAPIKey {
+			writeError(w, http.StatusUnauthorized, "invalid admin API key")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ── Admin Handlers ────────────────────────────────────────────────────────────
+
+func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "id")
+	if tenantID == "" {
+		writeError(w, http.StatusBadRequest, "tenant ID is required")
+		return
+	}
+
+	// Get the customer tenant
+	customerTenant, err := s.catalog.GetTenant(r.Context(), tenantID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+
+	// Ensure it's a customer account
+	if customerTenant.AccountType != "customer" {
+		writeError(w, http.StatusBadRequest, "service accounts cannot have service accounts")
+		return
+	}
+
+	// Retrieve the associated service account
+	serviceID := tenantID + "_svc"
+	serviceAccount, err := s.catalog.GetTenant(r.Context(), serviceID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "service account not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"tenant_id":      tenantID,
+		"service_id":     serviceAccount.ID,
+		"s3_prefix":      serviceAccount.S3Prefix,
+		"pg_schema":      serviceAccount.PGSchema,
+		"note":           "API key hash is stored securely; plain key was shown once during registration",
 	})
 }
 
