@@ -34,10 +34,10 @@ logs: ## Follow logs for all services
 # ── Database ──────────────────────────────────────────────────────────────────
 
 migrate: ## Run pending migrations
-	goose -dir migrations postgres "$(shell grep POSTGRES . env | cut -d= -f2)" up
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" up
 
 migrate-status: ## Show migration status
-	goose -dir migrations postgres "$(shell grep POSTGRES .env | cut -d= -f2)" status
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" status
 
 # ── Development helpers ───────────────────────────────────────────────────────
 
