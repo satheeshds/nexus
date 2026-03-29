@@ -77,7 +77,7 @@ lint: ## Run golangci-lint
 demo-register: ## Register a demo tenant (requires control plane running)
 	curl -s -X POST http://localhost:8080/api/v1/register \
 	  -H "Content-Type: application/json" \
-	  -d "{\"org_name\":\"Acme Corp\",\"email\":\"admin@acme.com\"}" | jq .
+	  -d "{\"org_name\":\"Acme Corp\",\"email\":\"admin@acme.com\",\"password\":\"$${DEMO_PASSWORD:-changeme}\"}" | jq .
 
 demo-health: ## Check control plane health
 	curl -s http://localhost:8080/healthz | jq .

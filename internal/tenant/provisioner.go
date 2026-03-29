@@ -107,6 +107,9 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		CreatedAt:   time.Now(),
 	}
 	if err := p.db.InsertTenant(ctx, customer); err != nil {
+		// Rollback: deprovision MinIO and drop schema
+		_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
+		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("insert customer record: %w", err)
 	}
 
@@ -132,6 +135,10 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		CreatedAt:      time.Now(),
 	}
 	if err := p.db.InsertServiceAccount(ctx, svcAccount); err != nil {
+		// Rollback: delete customer record, deprovision MinIO, drop schema
+		_ = p.db.DeleteTenant(ctx, tenantID)
+		_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
+		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("insert service account record: %w", err)
 	}
 
