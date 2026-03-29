@@ -150,7 +150,7 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 	}
 
 	// Tear down storage (MinIO) for this tenant.
-	if err := p.store.DeprovisionTenant(ctx, tenantID); err != nil {
+	if err := p.store.DeprovisionTenant(ctx, t.MinioAccessKey); err != nil {
 		return fmt.Errorf("deprovision storage: %w", err)
 	}
 	// Drop DuckLake schema (cascade removes all metadata)
