@@ -66,7 +66,7 @@ func main() {
 
 	// Tenant provisioner
 	provisioner := tenant.NewProvisioner(
-		catalogDB, storageClient, authSvc,
+		catalogDB, storageClient,
 		cfg.Postgres, cfg.MinIO, cfg.DuckLake,
 	)
 

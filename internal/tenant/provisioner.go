@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/duckdb"
@@ -27,37 +26,32 @@ type RegisterRequest struct {
 
 // RegisterResponse is returned after successful provisioning.
 type RegisterResponse struct {
-	TenantID      string
-	Token         string // JWT for immediate use by the customer
-	ServiceID     string // Service account ID used by internal services for data ingestion
-	ServiceAPIKey string // Service account API key – shown once; not visible to customers
+	TenantID  string
+	ServiceID string // Service account ID used by internal services for data ingestion
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
 type Provisioner struct {
-	db      *catalog.DB
-	store   *storage.Client
-	auth    *auth.Service
-	pgCfg   config.PostgresConfig
+	db       *catalog.DB
+	store    *storage.Client
+	pgCfg    config.PostgresConfig
 	minioCfg config.MinIOConfig
-	dlCfg   config.DuckLakeConfig
+	dlCfg    config.DuckLakeConfig
 }
 
 func NewProvisioner(
 	db *catalog.DB,
 	store *storage.Client,
-	authSvc *auth.Service,
 	pgCfg config.PostgresConfig,
 	minioCfg config.MinIOConfig,
 	dlCfg config.DuckLakeConfig,
 ) *Provisioner {
 	return &Provisioner{
-		db:      db,
-		store:   store,
-		auth:    authSvc,
-		pgCfg:   pgCfg,
+		db:       db,
+		store:    store,
+		pgCfg:    pgCfg,
 		minioCfg: minioCfg,
-		dlCfg:   dlCfg,
+		dlCfg:    dlCfg,
 	}
 }
 
@@ -141,18 +135,10 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("insert service account record: %w", err)
 	}
 
-	// Step 6: Issue JWT for the customer.
-	token, err := p.auth.Issue(tenantID, req.OrgName, s3Prefix, pgSchema)
-	if err != nil {
-		return nil, fmt.Errorf("issue jwt: %w", err)
-	}
-
 	slog.Info("tenant provisioned", "tenant", tenantID, "service_account", serviceID)
 	return &RegisterResponse{
-		TenantID:      tenantID,
-		Token:         token,
-		ServiceID:     serviceID,
-		ServiceAPIKey: serviceAPIKey,
+		TenantID:  tenantID,
+		ServiceID: serviceID,
 	}, nil
 }
 

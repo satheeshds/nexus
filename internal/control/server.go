@@ -101,16 +101,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"tenant_id": resp.TenantID,
-		"token":     resp.Token,
-		"pg_host":   "localhost",
-		"pg_port":   "5433",
-		"pg_user":   resp.TenantID,
 	})
 }
 
 type loginRequest struct {
 	TenantID string `json:"tenant_id"`
-	Password string `json:"password"` // API key returned at registration
+	Password string `json:"password"` // Customer login password (same value used during registration)
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
