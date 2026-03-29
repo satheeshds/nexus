@@ -88,11 +88,12 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	// Step 3: Provision MinIO service account scoped to tenant prefix.
-	_, err = p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
+	minioCreds, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("provision minio: %w", err)
 	}
+	minioAccessKey := minioCreds.AccessKey
 
 	// Step 4: Persist customer tenant record.
 	customer := catalog.Tenant{
@@ -121,17 +122,16 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("hash service account key: %w", err)
 	}
 	serviceID := tenantID + "_svc"
-	svcAccount := catalog.Tenant{
-		ID:          serviceID,
-		OrgName:     req.OrgName,
-		Email:       req.Email,
-		S3Prefix:    s3Prefix,
-		PGSchema:    pgSchema,
-		AccountType: "service",
-		APIKeyHash:  string(serviceKeyHash),
-		CreatedAt:   time.Now(),
+	svcAccount := catalog.ServiceAccount{
+		ID:             serviceID,
+		TenantID:       tenantID,
+		S3Prefix:       s3Prefix,
+		PGSchema:       pgSchema,
+		MinioAccessKey: minioAccessKey,
+		APIKeyHash:     string(serviceKeyHash),
+		CreatedAt:      time.Now(),
 	}
-	if err := p.db.InsertTenant(ctx, svcAccount); err != nil {
+	if err := p.db.InsertServiceAccount(ctx, svcAccount); err != nil {
 		return nil, fmt.Errorf("insert service account record: %w", err)
 	}
 
@@ -149,8 +149,14 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("get tenant: %w", err)
 	}
 
+	// Look up the service account to get the MinIO access key for deprovisioning.
+	svcAccount, err := p.db.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("get service account: %w", err)
+	}
+
 	// Tear down storage (MinIO) for this tenant.
-	if err := p.store.DeprovisionTenant(ctx, t.MinioAccessKey); err != nil {
+	if err := p.store.DeprovisionTenant(ctx, svcAccount.MinioAccessKey); err != nil {
 		return fmt.Errorf("deprovision storage: %w", err)
 	}
 	// Drop DuckLake schema (cascade removes all metadata)
@@ -158,7 +164,7 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("drop schema: %w", err)
 	}
 
-	// Remove tenant record
+	// Remove tenant record (service_accounts row is removed by ON DELETE CASCADE)
 	if err := p.db.DeleteTenant(ctx, tenantID); err != nil {
 		return fmt.Errorf("delete tenant record: %w", err)
 	}

@@ -98,6 +98,53 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 	return nil
 }
 
+// ServiceAccount represents a service account linked to a customer tenant.
+// Service accounts are used by internal services (e.g., data ingestion pipelines)
+// to access the tenant's data namespace.
+type ServiceAccount struct {
+	ID             string    `json:"id"`
+	TenantID       string    `json:"tenant_id"`
+	S3Prefix       string    `json:"s3_prefix"`
+	PGSchema       string    `json:"pg_schema"`
+	MinioAccessKey string    `json:"-"` // stored for deprovisioning; never exposed in API responses
+	APIKeyHash     string    `json:"-"` // bcrypt hash; never exposed
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+// InsertServiceAccount stores a new service account record.
+func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
+	_, err := db.pool.Exec(ctx, `
+		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.APIKeyHash, sa.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("insert service account: %w", err)
+	}
+	return nil
+}
+
+// GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
+func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at
+		FROM service_accounts WHERE tenant_id = $1
+	`, tenantID)
+	var sa ServiceAccount
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
+	}
+	return &sa, nil
+}
+
+// DeleteServiceAccountByTenantID removes the service account for a given customer tenant.
+func (db *DB) DeleteServiceAccountByTenantID(ctx context.Context, tenantID string) error {
+	_, err := db.pool.Exec(ctx, `DELETE FROM service_accounts WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return fmt.Errorf("delete service account for tenant %q: %w", tenantID, err)
+	}
+	return nil
+}
+
 // GetCustomerByEmail retrieves a customer-type tenant by email address.
 func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `

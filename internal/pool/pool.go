@@ -43,16 +43,23 @@ func New(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg confi
 }
 
 // Get returns an existing session for the tenant, or creates a new one.
+// It uses a double-check pattern: the lock is released while creating the
+// DuckDB session (which can involve network I/O), so other tenants are not
+// blocked. A race where two goroutines create sessions for the same tenant
+// simultaneously is resolved by keeping the first one stored and closing any
+// duplicate.
 func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*Session, error) {
+	// First check under lock.
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if s, ok := p.sessions[tenantID]; ok {
 		s.LastUsed = time.Now()
+		p.mu.Unlock()
 		slog.Debug("pool: reusing session", "tenant", tenantID)
 		return s, nil
 	}
+	p.mu.Unlock()
 
+	// Create the connection without holding the lock so other tenants are not blocked.
 	slog.Info("pool: creating new session", "tenant", tenantID)
 	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, p.minioCfg, s3Prefix, pgSchema)
 	if err != nil {
@@ -60,7 +67,7 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 	}
 
 	now := time.Now()
-	s := &Session{
+	newSession := &Session{
 		Conn:      conn,
 		TenantID:  tenantID,
 		S3Prefix:  s3Prefix,
@@ -68,8 +75,23 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 		CreatedAt: now,
 		LastUsed:  now,
 	}
-	p.sessions[tenantID] = s
-	return s, nil
+
+	// Re-acquire lock to publish. Another goroutine may have already inserted
+	// a session for the same tenant while we were creating ours.
+	p.mu.Lock()
+	if existing, ok := p.sessions[tenantID]; ok {
+		// Another goroutine beat us; close our duplicate and use theirs.
+		p.mu.Unlock()
+		if err := conn.Close(); err != nil {
+			slog.Warn("pool: error closing duplicate session", "tenant", tenantID, "err", err)
+		}
+		existing.LastUsed = time.Now()
+		return existing, nil
+	}
+	p.sessions[tenantID] = newSession
+	p.mu.Unlock()
+
+	return newSession, nil
 }
 
 // Evict forcibly closes and removes a tenant's session.
@@ -94,14 +116,24 @@ func (p *Pool) evictLoop() {
 	ticker := time.NewTicker(p.poolCfg.EvictionInterval)
 	defer ticker.Stop()
 	for range ticker.C {
+		// Collect tenants to evict under lock, then close connections outside the lock
+		// to avoid blocking Get/Evict operations during potentially slow Close calls.
+		var toEvict []*Session
 		p.mu.Lock()
 		for id, s := range p.sessions {
 			if time.Since(s.LastUsed) > p.poolCfg.SessionTTL {
 				slog.Info("pool: evicting idle session", "tenant", id)
-				p.evict(id)
+				toEvict = append(toEvict, s)
+				delete(p.sessions, id)
 			}
 		}
 		p.mu.Unlock()
+
+		for _, s := range toEvict {
+			if err := s.Conn.Close(); err != nil {
+				slog.Warn("pool: error closing evicted session", "tenant", s.TenantID, "err", err)
+			}
+		}
 	}
 }
 

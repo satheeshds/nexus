@@ -228,33 +228,25 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Get the customer tenant
-	customerTenant, err := s.catalog.GetTenant(r.Context(), tenantID)
-	if err != nil {
+	// Ensure the customer tenant exists
+	if _, err := s.catalog.GetTenant(r.Context(), tenantID); err != nil {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
 
-	// Ensure it's a customer account
-	if customerTenant.AccountType != "customer" {
-		writeError(w, http.StatusBadRequest, "service accounts cannot have service accounts")
-		return
-	}
-
-	// Retrieve the associated service account
-	serviceID := tenantID + "_svc"
-	serviceAccount, err := s.catalog.GetTenant(r.Context(), serviceID)
+	// Retrieve the associated service account from the dedicated table
+	svcAccount, err := s.catalog.GetServiceAccountByTenantID(r.Context(), tenantID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "service account not found")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"tenant_id":      tenantID,
-		"service_id":     serviceAccount.ID,
-		"s3_prefix":      serviceAccount.S3Prefix,
-		"pg_schema":      serviceAccount.PGSchema,
-		"note":           "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
+		"tenant_id":  tenantID,
+		"service_id": svcAccount.ID,
+		"s3_prefix":  svcAccount.S3Prefix,
+		"pg_schema":  svcAccount.PGSchema,
+		"note":       "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
 	})
 }
 
