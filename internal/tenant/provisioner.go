@@ -2,6 +2,8 @@ package tenant
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/duckdb"
 	"github.com/satheeshds/nexus/internal/storage"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // RegisterRequest is the input for provisioning a new tenant.
@@ -25,6 +28,7 @@ type RegisterRequest struct {
 type RegisterResponse struct {
 	TenantID string
 	Token    string
+	APIKey   string // plain-text API key – shown once; use for login
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
@@ -63,6 +67,16 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 	slog.Info("provisioning tenant", "tenant", tenantID)
 
+	// Generate a random API key (used as the shared secret for login).
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		return nil, fmt.Errorf("generate api key: %w", err)
+	}
+	apiKeyHash, err := bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash api key: %w", err)
+	}
+
 	// Step 1: Create Postgres schema for DuckLake metadata
 	if err := p.db.CreateTenantSchema(ctx, pgSchema); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
@@ -76,20 +90,21 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	// Step 3: Provision MinIO service account scoped to tenant prefix
-	_, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
+	_, err = p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
 		return nil, fmt.Errorf("provision minio: %w", err)
 	}
 
-	// Step 4: Persist tenant record in catalog
+	// Step 4: Persist tenant record in catalog (including the API key hash)
 	t := catalog.Tenant{
-		ID:        tenantID,
-		OrgName:   req.OrgName,
-		Email:     req.Email,
-		S3Prefix:  s3Prefix,
-		PGSchema:  pgSchema,
-		CreatedAt: time.Now(),
+		ID:         tenantID,
+		OrgName:    req.OrgName,
+		Email:      req.Email,
+		S3Prefix:   s3Prefix,
+		PGSchema:   pgSchema,
+		APIKeyHash: string(apiKeyHash),
+		CreatedAt:  time.Now(),
 	}
 	if err := p.db.InsertTenant(ctx, t); err != nil {
 		return nil, fmt.Errorf("insert tenant record: %w", err)
@@ -102,7 +117,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	slog.Info("tenant provisioned", "tenant", tenantID)
-	return &RegisterResponse{TenantID: tenantID, Token: token}, nil
+	return &RegisterResponse{TenantID: tenantID, Token: token, APIKey: apiKey}, nil
 }
 
 // Delete tears down a tenant's catalog, MinIO account, and registry record.
@@ -162,4 +177,13 @@ func makeSlug(orgName string) string {
 	// Suffix with short UUID to ensure uniqueness
 	short := uuid.New().String()[:8]
 	return fmt.Sprintf("%s_%s", slug, short)
+}
+
+// generateAPIKey returns a cryptographically random 32-byte hex string.
+func generateAPIKey() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }

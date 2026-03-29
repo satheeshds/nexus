@@ -11,12 +11,13 @@ import (
 
 // Tenant is the canonical representation of a provisioned tenant.
 type Tenant struct {
-	ID        string
-	OrgName   string
-	Email     string
-	S3Prefix  string
-	PGSchema  string
-	CreatedAt time.Time
+	ID          string    `json:"id"`
+	OrgName     string    `json:"org_name"`
+	Email       string    `json:"email"`
+	S3Prefix    string    `json:"s3_prefix"`
+	PGSchema    string    `json:"pg_schema"`
+	APIKeyHash  string    `json:"-"` // bcrypt hash – never serialised in API responses
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // DB wraps a pgxpool and exposes catalog operations.
@@ -65,9 +66,9 @@ func (db *DB) DropTenantSchema(ctx context.Context, pgSchema string) error {
 // InsertTenant stores the tenant record after provisioning is complete.
 func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.CreatedAt)
+		INSERT INTO tenants (id, org_name, email, s3_prefix, pg_schema, api_key_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, t.ID, t.OrgName, t.Email, t.S3Prefix, t.PGSchema, t.APIKeyHash, t.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert tenant: %w", err)
 	}
@@ -77,11 +78,11 @@ func (db *DB) InsertTenant(ctx context.Context, t Tenant) error {
 // GetTenant retrieves a tenant by ID.
 func (db *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, api_key_hash, created_at
 		FROM tenants WHERE id = $1
 	`, id)
 	var t Tenant
-	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.APIKeyHash, &t.CreatedAt); err != nil {
 		return nil, fmt.Errorf("get tenant %q: %w", id, err)
 	}
 	return &t, nil
@@ -99,7 +100,7 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 // ListTenants returns all tenants.
 func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	rows, err := db.pool.Query(ctx, `
-		SELECT id, org_name, email, s3_prefix, pg_schema, created_at
+		SELECT id, org_name, email, s3_prefix, pg_schema, api_key_hash, created_at
 		FROM tenants ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -110,7 +111,7 @@ func (db *DB) ListTenants(ctx context.Context) ([]Tenant, error) {
 	var tenants []Tenant
 	for rows.Next() {
 		var t Tenant
-		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.APIKeyHash, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		tenants = append(tenants, t)

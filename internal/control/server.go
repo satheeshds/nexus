@@ -2,6 +2,7 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/tenant"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type Server struct {
@@ -90,6 +92,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"tenant_id": resp.TenantID,
+		"api_key":   resp.APIKey,
 		"token":     resp.Token,
 		"pg_host":   "localhost",
 		"pg_port":   "5433",
@@ -100,7 +103,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 type loginRequest struct {
 	TenantID string `json:"tenant_id"`
-	Password string `json:"password"` // shared secret or API key (future)
+	Password string `json:"password"` // API key returned at registration
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -109,10 +112,25 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.TenantID == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "tenant_id and password are required")
+		return
+	}
 
 	t, err := s.catalog.GetTenant(r.Context(), req.TenantID)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "tenant not found")
+		// Return 401 to avoid leaking whether the tenant ID exists.
+		writeError(w, http.StatusUnauthorized, "invalid credentials")
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(t.APIKeyHash), []byte(req.Password)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			writeError(w, http.StatusUnauthorized, "invalid credentials")
+			return
+		}
+		slog.Error("bcrypt compare", "err", err)
+		writeError(w, http.StatusInternalServerError, "authentication error")
 		return
 	}
 
