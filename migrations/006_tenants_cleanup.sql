@@ -9,5 +9,5 @@ ALTER TABLE tenants RENAME COLUMN api_key_hash TO password_hash;
 ALTER TABLE tenants DROP COLUMN IF EXISTS account_type;
 
 -- +goose Down
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'customer' CHECK (account_type IN ('customer', 'service'));
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'customer';
 ALTER TABLE tenants RENAME COLUMN password_hash TO api_key_hash;

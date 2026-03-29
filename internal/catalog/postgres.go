@@ -144,8 +144,8 @@ func (db *DB) DeleteServiceAccountByTenantID(ctx context.Context, tenantID strin
 	return nil
 }
 
-// GetCustomerByEmail retrieves a customer tenant by email address.
-func (db *DB) GetCustomerByEmail(ctx context.Context, email string) (*Tenant, error) {
+// GetTenantByEmail retrieves a tenant by email address.
+func (db *DB) GetTenantByEmail(ctx context.Context, email string) (*Tenant, error) {
 	row := db.pool.QueryRow(ctx, `
 		SELECT id, org_name, email, s3_prefix, pg_schema, password_hash, created_at
 		FROM tenants WHERE email = $1
