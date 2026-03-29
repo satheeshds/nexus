@@ -1,4 +1,4 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy
+.PHONY: help build build-gateway build-control dev down migrate test bench bench-integration loadtest tidy
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
@@ -65,6 +65,15 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+bench: ## Run DuckDB in-memory benchmarks (no external services required)
+	CGO_ENABLED=1 go test -bench=. -benchmem -run='^$$' ./internal/duckdb/...
+
+bench-integration: ## Run all benchmarks including catalog (requires Postgres – see make dev-infra)
+	CGO_ENABLED=1 go test -tags integration -bench=. -benchmem -run='^$$' ./internal/...
+
+loadtest: ## Run the standalone catalog load test (requires Postgres – see make dev-infra)
+	CGO_ENABLED=1 go run ./loadtest -workers=10 -duration=30s
 
 tidy: ## Tidy go modules
 	go mod tidy
