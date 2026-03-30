@@ -339,8 +339,8 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "244": {
-                        "description": ""
+                    "204": {
+                        "description": "No Content"
                     },
                     "401": {
                         "description": "Unauthorized",
