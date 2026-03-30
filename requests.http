@@ -33,6 +33,18 @@ X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
 
 ###
 
+@tenant_id = new_corp_675006cf
+
+###
+// POST /api/v1/admin/tenants/{id}/service-account/rotate
+# @prompt tenant_id tenant id
+
+POST http://localhost:8080/api/v1/admin/tenants/{{tenant_id}}/service-account/rotate HTTP/1.1
+accept: application/json 
+X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
+
+###
+
 @org_name = test
 @email = [EMAIL_ADDRESS]
 @password = password
