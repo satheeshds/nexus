@@ -229,10 +229,10 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 
 // handleDeleteTenant godoc
 // @Summary Delete a tenant
-// @Description Deprovisions a tenant and removes its storage bucket and database schema. Requires JWT authentication.
+// @Description Deprovisions a tenant and removes its storage bucket and database schema. Requires admin authentication.
 // @Tags tenants
 // @Param id path string true "Tenant ID"
-// @Success 244
+// @Success 204
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security AdminAuth
