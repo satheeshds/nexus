@@ -58,6 +58,7 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Group(func(r chi.Router) {
 			r.Use(s.adminMiddleware)
 			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
+			r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
 		})
 	})
 
@@ -106,9 +107,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"tenant_id":       resp.TenantID,
-		"service_id":      resp.ServiceID,
-		"service_api_key": resp.ServiceAPIKey,
+		"tenant_id":  resp.TenantID,
+		"service_id": resp.ServiceID,
 	})
 }
 
@@ -242,7 +242,27 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		"service_id": svcAccount.ID,
 		"s3_prefix":  svcAccount.S3Prefix,
 		"pg_schema":  svcAccount.PGSchema,
-		"note":       "The plain API key is returned only once at registration time and cannot be retrieved afterward.",
+		"note":       "Use POST .../service-account/rotate to obtain or refresh the plain API key.",
+	})
+}
+
+func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "id")
+	if tenantID == "" {
+		writeError(w, http.StatusBadRequest, "tenant ID is required")
+		return
+	}
+
+	newKey, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
+	if err != nil {
+		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
+		writeError(w, http.StatusNotFound, "service account not found")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"tenant_id":       tenantID,
+		"service_api_key": newKey,
 	})
 }
 

@@ -135,6 +135,21 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 	return &sa, nil
 }
 
+// UpdateServiceAccountKeyHash replaces the stored bcrypt hash of the service account API key.
+// Call this after generating a new key during rotation.
+func (db *DB) UpdateServiceAccountKeyHash(ctx context.Context, tenantID, newHash string) error {
+	tag, err := db.pool.Exec(ctx, `
+		UPDATE service_accounts SET api_key_hash = $1 WHERE tenant_id = $2
+	`, newHash, tenantID)
+	if err != nil {
+		return fmt.Errorf("update api_key_hash for tenant %q: %w", tenantID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no service account found for tenant %q", tenantID)
+	}
+	return nil
+}
+
 // DeleteServiceAccountByTenantID removes the service account for a given customer tenant.
 func (db *DB) DeleteServiceAccountByTenantID(ctx context.Context, tenantID string) error {
 	_, err := db.pool.Exec(ctx, `DELETE FROM service_accounts WHERE tenant_id = $1`, tenantID)
