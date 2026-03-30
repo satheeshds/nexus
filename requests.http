@@ -1,0 +1,71 @@
+// GET /api/v1/admin/tenants
+
+GET http://localhost:8080/api/v1/admin/tenants HTTP/1.1
+accept: application/json 
+X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
+
+###
+@tenant_id = new_corp_675006cf
+
+###
+// GET /api/v1/admin/tenants/{id}
+# @prompt tenant_id tenant id
+
+GET http://localhost:8080/api/v1/admin/tenants/{{tenant_id}} HTTP/1.1
+accept: application/json 
+X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
+
+###
+// DELETE /api/v1/admin/tenants/{id}
+# @prompt tenant_id tenant id
+
+DELETE http://localhost:8080/api/v1/admin/tenants/{{tenant_id}} HTTP/1.1
+accept: application/json 
+X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
+
+###
+// GET /api/v1/admin/tenants/{id}/service-account
+# @prompt tenant_id tenant id
+
+GET http://localhost:8080/api/v1/admin/tenants/{{tenant_id}}/service-account HTTP/1.1
+accept: application/json 
+X-Admin-API-Key: {{$dotenv ADMIN_API_KEY}}
+
+###
+
+@org_name = test
+@email = [EMAIL_ADDRESS]
+@password = password
+
+###
+// POST /api/v1/register
+# @prompt org_name organization name
+# @prompt email email address
+# @prompt password password
+
+POST http://localhost:8080/api/v1/register HTTP/1.1
+accept: application/json 
+content-type: application/json
+
+{
+    "org_name": "{{org_name}}",
+    "email": "{{email}}",
+    "password": "{{password}}"
+}
+
+###
+// POST /api/v1/login
+# @prompt email email address
+# @prompt password password
+
+POST http://localhost:8080/api/v1/login HTTP/1.1
+accept: application/json 
+content-type: application/json
+
+{
+    "email": "{{email}}",
+    "password": "{{password}}"
+}
+
+
+
