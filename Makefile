@@ -73,7 +73,7 @@ lint: ## Run golangci-lint
 	golangci-lint run ./...
 
 swagger: ## Regenerate Swagger documentation
-	swag init -g cmd/control/main.go --output docs/control
+	swag init -g cmd/control/main.go --output docs
 
 # ── Quick demo ────────────────────────────────────────────────────────────────
 
