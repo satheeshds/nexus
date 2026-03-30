@@ -2,12 +2,16 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/satheeshds/nexus/internal/config"
 )
+
+// ErrNotFound is returned when a requested record does not exist.
+var ErrNotFound = errors.New("not found")
 
 // Tenant is the canonical representation of a provisioned customer tenant.
 type Tenant struct {
@@ -145,7 +149,7 @@ func (db *DB) UpdateServiceAccountKeyHash(ctx context.Context, tenantID, newHash
 		return fmt.Errorf("update api_key_hash for tenant %q: %w", tenantID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("no service account found for tenant %q", tenantID)
+		return fmt.Errorf("no service account found for tenant %q: %w", tenantID, ErrNotFound)
 	}
 	return nil
 }

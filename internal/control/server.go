@@ -268,6 +268,8 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"tenant_id":       tenantID,
 		"service_api_key": newKey,
