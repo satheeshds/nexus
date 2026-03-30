@@ -99,6 +99,12 @@ services:
         condition: service_healthy
     ports:
       - "5433:5433"   # Postgres-wire query endpoint
+      - "8081:8081"   # HTTP healthz/swagger endpoint
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     environment:
       NEXUS_POSTGRES_HOST:     postgres
       NEXUS_POSTGRES_PORT:     5432

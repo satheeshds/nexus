@@ -5,6 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	_ "github.com/satheeshds/nexus/docs/gateway"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/satheeshds/nexus/internal/auth"
@@ -15,14 +21,15 @@ import (
 // Server listens for incoming Postgres wire connections and routes them
 // to per-tenant DuckDB sessions.
 type Server struct {
-	addr    string
-	pool    *pool.Pool
-	auth    *auth.Service
-	catalog *catalog.DB
+	addr     string
+	httpAddr string
+	pool     *pool.Pool
+	auth     *auth.Service
+	catalog  *catalog.DB
 }
 
-func NewServer(addr string, p *pool.Pool, a *auth.Service, db *catalog.DB) *Server {
-	return &Server{addr: addr, pool: p, auth: a, catalog: db}
+func NewServer(addr string, httpAddr string, p *pool.Pool, a *auth.Service, db *catalog.DB) *Server {
+	return &Server{addr: addr, httpAddr: httpAddr, pool: p, auth: a, catalog: db}
 }
 
 // ListenAndServe starts the TCP listener.
@@ -33,11 +40,26 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 	defer ln.Close()
 
-	slog.Info("gateway listening", "addr", s.addr)
+	slog.Info("gateway listening", "pg_addr", s.addr, "http_addr", s.httpAddr)
+
+	httpSrv := &http.Server{
+		Addr:    s.httpAddr,
+		Handler: s.buildHTTPRouter(),
+	}
+
+	go func() {
+		slog.Debug("gateway http starting", "addr", s.httpAddr)
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("gateway http server error", "err", err)
+		}
+	}()
 
 	go func() {
 		<-ctx.Done()
 		ln.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = httpSrv.Shutdown(shutdownCtx)
 	}()
 
 	for {
@@ -158,4 +180,24 @@ func sendError(backend *pgproto3.Backend, msg string) error {
 		Code:     "08006",
 		Message:  msg,
 	})
+}
+
+func (s *Server) buildHTTPRouter() http.Handler {
+	r := chi.NewRouter()
+	r.Get("/healthz", s.handleHealth)
+	r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+	return r
+}
+
+// handleHealth godoc
+// @Summary Gateway health check
+// @Description returns status ok if gateway is running
+// @Tags health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /healthz [get]
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

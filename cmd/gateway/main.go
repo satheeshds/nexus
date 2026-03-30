@@ -15,6 +15,12 @@ import (
 	"github.com/satheeshds/nexus/internal/pool"
 )
 
+// @title Nexus Query Gateway API
+// @version 1.0
+// @description The Nexus query gateway provides a Postgres-compatible entry point for customer data queries.
+// @host localhost:8081
+// @BasePath /
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
@@ -46,7 +52,8 @@ func main() {
 
 	// Gateway server
 	addr := fmt.Sprintf("%s:%d", cfg.Gateway.Host, cfg.Gateway.Port)
-	srv := gateway.NewServer(addr, sessionPool, authSvc, catalogDB)
+	httpAddr := fmt.Sprintf("%s:%d", cfg.Gateway.Host, cfg.Gateway.HTTPPort)
+	srv := gateway.NewServer(addr, httpAddr, sessionPool, authSvc, catalogDB)
 
 	slog.Info("nexus gateway starting", "addr", addr)
 	if err := srv.ListenAndServe(ctx); err != nil {

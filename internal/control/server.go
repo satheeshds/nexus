@@ -12,6 +12,9 @@ import (
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/tenant"
 	"golang.org/x/crypto/bcrypt"
+
+	_ "github.com/satheeshds/nexus/docs/control"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 type Server struct {
@@ -40,6 +43,7 @@ func (s *Server) buildRouter() *chi.Mux {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", s.handleHealth)
+	r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public
@@ -66,6 +70,13 @@ func (s *Server) buildRouter() *chi.Mux {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
+// handleHealth godoc
+// @Summary Health check
+// @Description returns status ok if server is running
+// @Tags health
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router /healthz [get]
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -77,6 +88,18 @@ type registerRequest struct {
 	Password string `json:"password"` // Required: customer login password
 }
 
+// handleRegister godoc
+// @Summary Register a new tenant
+// @Description Provision a new customer tenant and its associated database schema and storage namespace.
+// @Tags tenants
+// @Accept json
+// @Produce json
+// @Param body body registerRequest true "Registration data"
+// @Success 201 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 409 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /register [post]
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -115,6 +138,18 @@ type loginRequest struct {
 	Password string `json:"password"` // Customer login password (same value used during registration)
 }
 
+// handleLogin godoc
+// @Summary Login as a tenant
+// @Description Authenticate with email and password to receive a JWT token for further requests.
+// @Tags identity
+// @Accept json
+// @Produce json
+// @Param body body loginRequest true "Login credentials"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /login [post]
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -152,6 +187,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
+// handleGetTenant godoc
+// @Summary Get tenant details
+// @Description Retrieves details for a specific tenant by ID. Requires JWT authentication.
+// @Tags tenants
+// @Produce json
+// @Param id path string true "Tenant ID"
+// @Success 200 {object} catalog.Tenant
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security ApiKeyAuth
+// @Router /tenants/{id} [get]
 func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	t, err := s.catalog.GetTenant(r.Context(), id)
@@ -162,6 +208,16 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
+// handleListTenants godoc
+// @Summary List all tenants
+// @Description Returns a list of all registered tenants. Requires JWT authentication.
+// @Tags tenants
+// @Produce json
+// @Success 200 {array} catalog.Tenant
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security ApiKeyAuth
+// @Router /tenants [get]
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := s.catalog.ListTenants(r.Context())
 	if err != nil {
@@ -171,6 +227,16 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, tenants)
 }
 
+// handleDeleteTenant godoc
+// @Summary Delete a tenant
+// @Description Deprovisions a tenant and removes its storage bucket and database schema. Requires JWT authentication.
+// @Tags tenants
+// @Param id path string true "Tenant ID"
+// @Success 244
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security ApiKeyAuth
+// @Router /tenants/{id} [delete]
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.provisioner.Delete(r.Context(), id); err != nil {
@@ -215,6 +281,17 @@ func (s *Server) adminMiddleware(next http.Handler) http.Handler {
 
 // ── Admin Handlers ────────────────────────────────────────────────────────────
 
+// handleGetServiceAccount godoc
+// @Summary Get service account details (Admin only)
+// @Description Retrieves the service account details for a tenant. Requires Admin API Key.
+// @Tags admin
+// @Produce json
+// @Param id path string true "Tenant ID"
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 404 {object} map[string]string
+// @Security AdminAuth
+// @Router /admin/tenants/{id}/service-account [get]
 func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "id")
 	if tenantID == "" {

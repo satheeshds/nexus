@@ -1,0 +1,283 @@
+basePath: /api/v1
+definitions:
+  catalog.Tenant:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      org_name:
+        type: string
+      pg_schema:
+        type: string
+      s3_prefix:
+        type: string
+    type: object
+  control.loginRequest:
+    properties:
+      email:
+        type: string
+      password:
+        description: Customer login password (same value used during registration)
+        type: string
+    type: object
+  control.registerRequest:
+    properties:
+      email:
+        type: string
+      org_name:
+        type: string
+      password:
+        description: 'Required: customer login password'
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: The Nexus control plane manages customer tenants, registration, and
+    authentication.
+  title: Nexus Control Plane API
+  version: "1.0"
+paths:
+  /admin/tenants/{id}/service-account:
+    get:
+      description: Retrieves the service account details for a tenant. Requires Admin
+        API Key.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - AdminAuth: []
+      summary: Get service account details (Admin only)
+      tags:
+      - admin
+  /healthz:
+    get:
+      description: returns status ok if server is running
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate with email and password to receive a JWT token for
+        further requests.
+      parameters:
+      - description: Login credentials
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/control.loginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Login as a tenant
+      tags:
+      - identity
+  /register:
+    post:
+      consumes:
+      - application/json
+      description: Provision a new customer tenant and its associated database schema
+        and storage namespace.
+      parameters:
+      - description: Registration data
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/control.registerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "409":
+          description: Conflict
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Register a new tenant
+      tags:
+      - tenants
+  /tenants:
+    get:
+      description: Returns a list of all registered tenants. Requires JWT authentication.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/catalog.Tenant'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: List all tenants
+      tags:
+      - tenants
+  /tenants/{id}:
+    delete:
+      description: Deprovisions a tenant and removes its storage bucket and database
+        schema. Requires JWT authentication.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "244":
+          description: ""
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Delete a tenant
+      tags:
+      - tenants
+    get:
+      description: Retrieves details for a specific tenant by ID. Requires JWT authentication.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalog.Tenant'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Get tenant details
+      tags:
+      - tenants
+securityDefinitions:
+  AdminAuth:
+    description: Admin API key for sensitive operations
+    in: header
+    name: X-Admin-API-Key
+    type: apiKey
+  ApiKeyAuth:
+    description: '"Bearer <token>"'
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

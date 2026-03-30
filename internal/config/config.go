@@ -19,8 +19,9 @@ type Config struct {
 }
 
 type GatewayConfig struct {
-	Host string `mapstructure:"host"`
-	Port int    `mapstructure:"port"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	HTTPPort int    `mapstructure:"http_port"`
 }
 
 type ControlConfig struct {
@@ -88,6 +89,7 @@ func Load() (*Config, error) {
 	// Defaults
 	v.SetDefault("gateway.host", "0.0.0.0")
 	v.SetDefault("gateway.port", 5433)
+	v.SetDefault("gateway.http_port", 8081)
 	v.SetDefault("control.host", "0.0.0.0")
 	v.SetDefault("control.port", 8080)
 	v.SetDefault("postgres.host", "localhost")

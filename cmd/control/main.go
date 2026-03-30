@@ -22,6 +22,22 @@ import (
 	"github.com/satheeshds/nexus/internal/tenant"
 )
 
+// @title Nexus Control Plane API
+// @version 1.0
+// @description The Nexus control plane manages customer tenants, registration, and authentication.
+// @host localhost:8080
+// @BasePath /api/v1
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+// @description "Bearer <token>"
+
+// @securityDefinitions.apikey AdminAuth
+// @in header
+// @name X-Admin-API-Key
+// @description Admin API key for sensitive operations
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
