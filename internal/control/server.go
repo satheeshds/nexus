@@ -107,8 +107,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"tenant_id":  resp.TenantID,
-		"service_id": resp.ServiceID,
+		"tenant_id": resp.TenantID,
 	})
 }
 
