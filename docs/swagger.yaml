@@ -1,4 +1,4 @@
-basePath: /api/v1
+basePath: /
 definitions:
   catalog.Tenant:
     properties:
@@ -41,7 +41,100 @@ info:
   title: Nexus Control Plane API
   version: "1.0"
 paths:
-  /admin/tenants/{id}/service-account:
+  /api/v1/admin/tenants:
+    get:
+      description: Returns a list of all registered tenants. Requires admin API key
+        authentication.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/catalog.Tenant'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - AdminAuth: []
+      summary: List all tenants
+      tags:
+      - tenants
+  /api/v1/admin/tenants/{id}:
+    delete:
+      description: Deprovisions a tenant and removes its storage bucket and database
+        schema. Requires admin authentication.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - AdminAuth: []
+      summary: Delete a tenant
+      tags:
+      - tenants
+    get:
+      description: Retrieves details for a specific tenant by ID. Requires admin API
+        key authentication.
+      parameters:
+      - description: Tenant ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/catalog.Tenant'
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - AdminAuth: []
+      summary: Get tenant details
+      tags:
+      - tenants
+  /api/v1/admin/tenants/{id}/service-account:
     get:
       description: Retrieves the service account details for a tenant. Requires Admin
         API Key.
@@ -77,22 +170,7 @@ paths:
       summary: Get service account details (Admin only)
       tags:
       - admin
-  /healthz:
-    get:
-      description: returns status ok if server is running
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Health check
-      tags:
-      - health
-  /login:
+  /api/v1/login:
     post:
       consumes:
       - application/json
@@ -135,7 +213,7 @@ paths:
       summary: Login as a tenant
       tags:
       - identity
-  /register:
+  /api/v1/register:
     post:
       consumes:
       - application/json
@@ -178,97 +256,21 @@ paths:
       summary: Register a new tenant
       tags:
       - tenants
-  /tenants:
+  /healthz:
     get:
-      description: Returns a list of all registered tenants. Requires JWT authentication.
+      description: returns status ok if server is running
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/catalog.Tenant'
-            type: array
-        "401":
-          description: Unauthorized
-          schema:
             additionalProperties:
               type: string
             type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ApiKeyAuth: []
-      summary: List all tenants
+      summary: Health check
       tags:
-      - tenants
-  /tenants/{id}:
-    delete:
-      description: Deprovisions a tenant and removes its storage bucket and database
-        schema. Requires JWT authentication.
-      parameters:
-      - description: Tenant ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "244":
-          description: ""
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ApiKeyAuth: []
-      summary: Delete a tenant
-      tags:
-      - tenants
-    get:
-      description: Retrieves details for a specific tenant by ID. Requires JWT authentication.
-      parameters:
-      - description: Tenant ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/catalog.Tenant'
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "404":
-          description: Not Found
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - ApiKeyAuth: []
-      summary: Get tenant details
-      tags:
-      - tenants
+      - health
 securityDefinitions:
   AdminAuth:
     description: Admin API key for sensitive operations

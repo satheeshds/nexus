@@ -43,7 +43,10 @@ func (s *Server) buildRouter() *chi.Mux {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", s.handleHealth)
-	r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+	r.Group(func(r chi.Router) {
+		r.Use(s.adminMiddleware)
+		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+	})
 
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public
@@ -99,7 +102,7 @@ type registerRequest struct {
 // @Failure 400 {object} map[string]string
 // @Failure 409 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /register [post]
+// @Router /api/v1/register [post]
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -149,7 +152,7 @@ type loginRequest struct {
 // @Failure 400 {object} map[string]string
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /login [post]
+// @Router /api/v1/login [post]
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -189,7 +192,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTenant godoc
 // @Summary Get tenant details
-// @Description Retrieves details for a specific tenant by ID. Requires AdminAuth admin API key authentication.
+// @Description Retrieves details for a specific tenant by ID. Requires admin API key authentication.
 // @Tags tenants
 // @Produce json
 // @Param id path string true "Tenant ID"
@@ -197,7 +200,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // @Failure 401 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Security AdminAuth
-// @Router /admin/tenants/{id} [get]
+// @Router /api/v1/admin/tenants/{id} [get]
 func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	t, err := s.catalog.GetTenant(r.Context(), id)
@@ -210,14 +213,14 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 
 // handleListTenants godoc
 // @Summary List all tenants
-// @Description Returns a list of all registered tenants. Requires JWT authentication.
+// @Description Returns a list of all registered tenants. Requires admin API key authentication.
 // @Tags tenants
 // @Produce json
 // @Success 200 {array} catalog.Tenant
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security AdminAuth
-// @Router /admin/tenants [get]
+// @Router /api/v1/admin/tenants [get]
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := s.catalog.ListTenants(r.Context())
 	if err != nil {
@@ -236,7 +239,7 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Security AdminAuth
-// @Router /admin/tenants/{id} [delete]
+// @Router /api/v1/admin/tenants/{id} [delete]
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.provisioner.Delete(r.Context(), id); err != nil {
@@ -291,7 +294,7 @@ func (s *Server) adminMiddleware(next http.Handler) http.Handler {
 // @Failure 401 {object} map[string]string
 // @Failure 404 {object} map[string]string
 // @Security AdminAuth
-// @Router /admin/tenants/{id}/service-account [get]
+// @Router /api/v1/admin/tenants/{id}/service-account [get]
 func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "id")
 	if tenantID == "" {
