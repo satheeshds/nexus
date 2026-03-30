@@ -67,15 +67,26 @@ Platform operators use this key in the X-Admin-API-Key header to access admin en
 
 ---
 
-## 🔐 Connection Guide
+### 🔐 Connection Guide
 
-Connect to the **Nexus Gateway** using any Postgres-compatible client:
+Connect to the **Nexus Gateway** using any Postgres-compatible client.
 
+#### As a Customer Tenant (JWT)
 - **Host:** `localhost`
 - **Port:** `5433`
 - **Database:** `lake`
 - **Username:** `<tenant_id>`
 - **Password:** `<JWT_token>`
+
+#### As a Service Account (API Key)
+- **Host:** `localhost`
+- **Port:** `5433`
+- **Database:** `lake`
+- **Username:** `<service_id>` (e.g., `acme_corp_xxxx_svc`)
+- **Password:** `<service_api_key>` (32-byte hex string)
+
+> [!TIP]
+> You can retrieve your service ID and rotate your API key via the Control Plane's admin endpoints.
 
 ---
 

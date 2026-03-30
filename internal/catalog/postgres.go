@@ -139,6 +139,19 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 	return &sa, nil
 }
 
+// GetServiceAccount retrieves a service account by its ID.
+func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
+	row := db.pool.QueryRow(ctx, `
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at
+		FROM service_accounts WHERE id = $1
+	`, id)
+	var sa ServiceAccount
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+		return nil, fmt.Errorf("get service account %q: %w", id, err)
+	}
+	return &sa, nil
+}
+
 // UpdateServiceAccountKeyHash replaces the stored bcrypt hash of the service account API key.
 // Call this after generating a new key during rotation.
 func (db *DB) UpdateServiceAccountKeyHash(ctx context.Context, tenantID, newHash string) error {
