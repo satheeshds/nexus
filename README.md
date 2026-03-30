@@ -67,7 +67,7 @@ Platform operators use this key in the X-Admin-API-Key header to access admin en
 
 ---
 
-### 🔐 Connection Guide
+## 🔐 Connection Guide
 
 Connect to the **Nexus Gateway** using any Postgres-compatible client.
 
