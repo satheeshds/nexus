@@ -26,7 +26,7 @@ import (
 // @version 1.0
 // @description The Nexus control plane manages customer tenants, registration, and authentication.
 // @host localhost:8080
-// @BasePath /api/v1
+// @BasePath /
 
 // @securityDefinitions.apikey ApiKeyAuth
 // @in header

@@ -13,7 +13,7 @@ import (
 	"github.com/satheeshds/nexus/internal/tenant"
 	"golang.org/x/crypto/bcrypt"
 
-	_ "github.com/satheeshds/nexus/docs/control"
+	_ "github.com/satheeshds/nexus/docs"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
