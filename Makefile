@@ -72,13 +72,17 @@ test-infra-up: ## Start test infrastructure (postgres only, for integration test
 test-infra-down: ## Stop and remove test infrastructure
 	docker compose -f docker-compose.test.yml down -v
 
-integration-test: ## Run integration tests against the test postgres (run test-infra-up first)
+integration-test: ## Run integration tests against the test postgres and minio (run test-infra-up first)
 	TEST_POSTGRES_HOST=localhost \
 	TEST_POSTGRES_PORT=5433 \
 	TEST_POSTGRES_USER=nexus_test \
 	TEST_POSTGRES_PASSWORD=testpassword \
 	TEST_POSTGRES_DBNAME=lake_catalog_test \
-	go test -tags=integration -v ./internal/catalog/...
+	TEST_MINIO_ENDPOINT=localhost:9002 \
+	TEST_MINIO_ACCESS_KEY=minioadmin_test \
+	TEST_MINIO_SECRET_KEY=testpassword \
+	TEST_MINIO_BUCKET=lakehouse-test \
+	go test -tags=integration -v ./internal/catalog/... ./internal/storage/... ./internal/control/...
 
 tidy: ## Tidy go modules
 	go mod tidy
