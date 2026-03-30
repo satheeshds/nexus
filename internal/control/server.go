@@ -253,6 +253,11 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Ensure the customer tenant exists, for consistency with handleGetServiceAccount.
+	if _, err := s.catalog.GetTenant(r.Context(), tenantID); err != nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
 	newKey, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
 	if err != nil {
 		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
