@@ -50,17 +50,17 @@ func (s *Server) buildRouter() *chi.Mux {
 		r.Post("/register", s.handleRegister)
 		r.Post("/login", s.handleLogin)
 
-		// Authenticated
+		// Authenticated (JWT) - currently nothing here as tenant info moved to admin
 		r.Group(func(r chi.Router) {
 			r.Use(s.jwtMiddleware)
-			r.Get("/tenants/{id}", s.handleGetTenant)
-			r.Delete("/tenants/{id}", s.handleDeleteTenant)
-			r.Get("/tenants", s.handleListTenants)
 		})
 
-		// Admin endpoints
+		// Admin endpoints (X-Admin-API-Key)
 		r.Group(func(r chi.Router) {
 			r.Use(s.adminMiddleware)
+			r.Get("/admin/tenants", s.handleListTenants)
+			r.Get("/admin/tenants/{id}", s.handleGetTenant)
+			r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
 		})
 	})
@@ -196,8 +196,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {object} catalog.Tenant
 // @Failure 401 {object} map[string]string
 // @Failure 404 {object} map[string]string
-// @Security ApiKeyAuth
-// @Router /tenants/{id} [get]
+// @Security AdminAuth
+// @Router /admin/tenants/{id} [get]
 func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	t, err := s.catalog.GetTenant(r.Context(), id)
@@ -216,8 +216,8 @@ func (s *Server) handleGetTenant(w http.ResponseWriter, r *http.Request) {
 // @Success 200 {array} catalog.Tenant
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Security ApiKeyAuth
-// @Router /tenants [get]
+// @Security AdminAuth
+// @Router /admin/tenants [get]
 func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 	tenants, err := s.catalog.ListTenants(r.Context())
 	if err != nil {
@@ -235,8 +235,8 @@ func (s *Server) handleListTenants(w http.ResponseWriter, r *http.Request) {
 // @Success 244
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Security ApiKeyAuth
-// @Router /tenants/{id} [delete]
+// @Security AdminAuth
+// @Router /admin/tenants/{id} [delete]
 func (s *Server) handleDeleteTenant(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.provisioner.Delete(r.Context(), id); err != nil {
