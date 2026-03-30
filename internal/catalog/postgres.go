@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/satheeshds/nexus/internal/config"
 )
@@ -87,6 +88,9 @@ func (db *DB) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	`, id)
 	var t Tenant
 	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get tenant %q: %w", id, ErrNotFound)
+		}
 		return nil, fmt.Errorf("get tenant %q: %w", id, err)
 	}
 	return &t, nil
@@ -134,6 +138,9 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 	`, tenantID)
 	var sa ServiceAccount
 	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
+		}
 		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
 	}
 	return &sa, nil
@@ -147,6 +154,9 @@ func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount
 	`, id)
 	var sa ServiceAccount
 	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
+		}
 		return nil, fmt.Errorf("get service account %q: %w", id, err)
 	}
 	return &sa, nil
@@ -184,6 +194,9 @@ func (db *DB) GetTenantByEmail(ctx context.Context, email string) (*Tenant, erro
 	`, email)
 	var t Tenant
 	if err := row.Scan(&t.ID, &t.OrgName, &t.Email, &t.S3Prefix, &t.PGSchema, &t.PasswordHash, &t.CreatedAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("get tenant by email %q: %w", email, ErrNotFound)
+		}
 		return nil, fmt.Errorf("get tenant by email %q: %w", email, err)
 	}
 	return &t, nil
