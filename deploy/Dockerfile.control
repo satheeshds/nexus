@@ -11,7 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Install swag tool early so it's cached by Docker
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+
 COPY . .
+
+# Regenerate Swagger documentation during build (this is very fast)
+RUN /go/bin/swag init -g cmd/control/main.go --output docs/control
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w" \

@@ -1,4 +1,4 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy
+.PHONY: help build build-gateway build-control dev down migrate test tidy swagger
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
@@ -71,6 +71,9 @@ tidy: ## Tidy go modules
 
 lint: ## Run golangci-lint
 	golangci-lint run ./...
+
+swagger: ## Regenerate Swagger documentation
+	swag init -g cmd/control/main.go --output docs/control
 
 # ── Quick demo ────────────────────────────────────────────────────────────────
 
