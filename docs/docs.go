@@ -221,11 +221,11 @@ const docTemplate = `{
                 }
             }
         },
-        "/tenants": {
+        "/api/v1/admin/tenants": {
             "get": {
                 "security": [
                     {
-                        "ApiKeyAuth": []
+                        "AdminAuth": []
                     }
                 ],
                 "description": "Returns a list of all registered tenants. Requires JWT authentication.",
