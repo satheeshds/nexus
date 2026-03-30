@@ -85,6 +85,9 @@ Connect to the **Nexus Gateway** using any Postgres-compatible client.
 - **Username:** `<service_id>` (e.g., `acme_corp_xxxx_svc`)
 - **Password:** `<service_api_key>` (32-byte hex string)
 
+> [!WARNING]
+> The gateway currently denies SSL/TLS (`SSLRequest` -> `N`), so credentials — including long‑lived service-account API keys — are sent in cleartext over the network. Only use API-key authentication over `localhost` during development, or over a secure channel such as a VPN/SSH tunnel or a TLS‑terminating proxy/load balancer. Do **not** expose the gateway with API-key auth directly to untrusted networks until you have end‑to‑end TLS in place.
+>
 > [!TIP]
 > You can retrieve your service ID and rotate your API key via the Control Plane's admin endpoints.
 
