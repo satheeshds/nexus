@@ -241,7 +241,7 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		"service_id": svcAccount.ID,
 		"s3_prefix":  svcAccount.S3Prefix,
 		"pg_schema":  svcAccount.PGSchema,
-		"note":       "Use POST .../service-account/rotate to obtain or refresh the plain API key.",
+		"note":       "Use the service-account key rotation endpoint to obtain or refresh the plain API key.",
 	})
 }
 
