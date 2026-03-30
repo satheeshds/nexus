@@ -260,7 +260,11 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 	newKey, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
 	if err != nil {
 		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
-		writeError(w, http.StatusNotFound, "service account not found")
+		if errors.Is(err, catalog.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "service account not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal server error")
+		}
 		return
 	}
 
