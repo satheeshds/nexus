@@ -189,7 +189,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 // handleGetTenant godoc
 // @Summary Get tenant details
-// @Description Retrieves details for a specific tenant by ID. Requires JWT authentication.
+// @Description Retrieves details for a specific tenant by ID. Requires AdminAuth admin API key authentication.
 // @Tags tenants
 // @Produce json
 // @Param id path string true "Tenant ID"
