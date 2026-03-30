@@ -2,12 +2,16 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/satheeshds/nexus/internal/config"
 )
+
+// ErrNotFound is returned when a requested record does not exist.
+var ErrNotFound = errors.New("not found")
 
 // Tenant is the canonical representation of a provisioned customer tenant.
 type Tenant struct {
@@ -133,6 +137,21 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
 	}
 	return &sa, nil
+}
+
+// UpdateServiceAccountKeyHash replaces the stored bcrypt hash of the service account API key.
+// Call this after generating a new key during rotation.
+func (db *DB) UpdateServiceAccountKeyHash(ctx context.Context, tenantID, newHash string) error {
+	tag, err := db.pool.Exec(ctx, `
+		UPDATE service_accounts SET api_key_hash = $1 WHERE tenant_id = $2
+	`, newHash, tenantID)
+	if err != nil {
+		return fmt.Errorf("update api_key_hash for tenant %q: %w", tenantID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("no service account found for tenant %q: %w", tenantID, ErrNotFound)
+	}
+	return nil
 }
 
 // DeleteServiceAccountByTenantID removes the service account for a given customer tenant.

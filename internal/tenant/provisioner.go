@@ -26,8 +26,7 @@ type RegisterRequest struct {
 
 // RegisterResponse is returned after successful provisioning.
 type RegisterResponse struct {
-	TenantID  string
-	ServiceID string // Service account ID used by internal services for data ingestion
+	TenantID string
 }
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
@@ -143,9 +142,28 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 	slog.Info("tenant provisioned", "tenant", tenantID, "service_account", serviceID)
 	return &RegisterResponse{
-		TenantID:  tenantID,
-		ServiceID: serviceID,
+		TenantID: tenantID,
 	}, nil
+}
+
+// RotateServiceAccountKey generates a new API key for the tenant's service account,
+// stores its bcrypt hash, and returns the new plain key to the caller.
+// This is intended for use by the platform to manage ingestion credentials.
+func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID string) (string, error) {
+	newKey, err := generateAPIKey()
+	if err != nil {
+		return "", fmt.Errorf("generate api key: %w", err)
+	}
+	newHash, err := bcrypt.GenerateFromPassword([]byte(newKey), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash api key: %w", err)
+	}
+	if err := p.db.UpdateServiceAccountKeyHash(ctx, tenantID, string(newHash)); err != nil {
+		return "", fmt.Errorf("update api key hash: %w", err)
+	}
+
+	slog.Info("service account key rotated", "tenant", tenantID)
+	return newKey, nil
 }
 
 // Delete tears down a tenant's catalog, MinIO account, and registry record.

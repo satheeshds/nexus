@@ -65,6 +65,7 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Get("/admin/tenants/{id}", s.handleGetTenant)
 			r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
+			r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
 		})
 	})
 
@@ -320,7 +321,38 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		"service_id": svcAccount.ID,
 		"s3_prefix":  svcAccount.S3Prefix,
 		"pg_schema":  svcAccount.PGSchema,
-		"note":       "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
+		"note":       "Use the service-account key rotation endpoint to obtain or refresh the plain API key.",
+	})
+}
+
+func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "id")
+	if tenantID == "" {
+		writeError(w, http.StatusBadRequest, "tenant ID is required")
+		return
+	}
+
+	// Ensure the customer tenant exists, for consistency with handleGetServiceAccount.
+	if _, err := s.catalog.GetTenant(r.Context(), tenantID); err != nil {
+		writeError(w, http.StatusNotFound, "tenant not found")
+		return
+	}
+	newKey, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
+	if err != nil {
+		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
+		if errors.Is(err, catalog.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "service account not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, "internal server error")
+		}
+		return
+	}
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+	writeJSON(w, http.StatusOK, map[string]string{
+		"tenant_id":       tenantID,
+		"service_api_key": newKey,
 	})
 }
 
