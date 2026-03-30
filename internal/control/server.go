@@ -106,7 +106,9 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]string{
-		"tenant_id": resp.TenantID,
+		"tenant_id":       resp.TenantID,
+		"service_id":      resp.ServiceID,
+		"service_api_key": resp.ServiceAPIKey,
 	})
 }
 
@@ -240,7 +242,7 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 		"service_id": svcAccount.ID,
 		"s3_prefix":  svcAccount.S3Prefix,
 		"pg_schema":  svcAccount.PGSchema,
-		"note":       "API key is stored only as a secure hash; the plain key cannot be retrieved from the service",
+		"note":       "The plain API key is returned only once at registration time and cannot be retrieved afterward.",
 	})
 }
 
