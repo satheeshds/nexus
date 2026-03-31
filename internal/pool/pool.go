@@ -80,7 +80,7 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	}
 	slog.Debug("fetched tenant MinIO credentials",
 		"tenant", tenantID,
-		"minio_access_key", sa.MinioAccessKey,
+		"has_access_key", sa.MinioAccessKey != "",
 		"has_secret_key", sa.MinioSecretKey != "",
 	)
 
