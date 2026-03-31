@@ -80,13 +80,9 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("create schema: %w", err)
 	}
 
-	// Step 2: Initialize DuckLake catalog (writes initial snapshot tables to PG).
-	if err := p.initDuckLake(ctx, tenantID, s3Prefix, pgSchema); err != nil {
-		_ = p.db.DropTenantSchema(ctx, pgSchema)
-		return nil, fmt.Errorf("init ducklake: %w", err)
-	}
-
-	// Step 3: Provision MinIO service account scoped to tenant prefix.
+	// Step 2: Provision MinIO service account scoped to tenant prefix.
+	// Done before initDuckLake so the DuckDB initialization session can use
+	// tenant-scoped credentials rather than the admin credentials.
 	minioCreds, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
 		_ = p.db.DropTenantSchema(ctx, pgSchema)
@@ -94,6 +90,22 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 	minioAccessKey := minioCreds.AccessKey
 	minioSecretKey := minioCreds.SecretKey
+
+	tenantMinioCfg := config.MinIOConfig{
+		Endpoint:     p.minioCfg.Endpoint,
+		AccessKey:    minioAccessKey,
+		SecretKey:    minioSecretKey,
+		Bucket:       p.minioCfg.Bucket,
+		UseSSL:       p.minioCfg.UseSSL,
+		UsePathStyle: p.minioCfg.UsePathStyle,
+	}
+
+	// Step 3: Initialize DuckLake catalog using tenant-scoped MinIO credentials.
+	if err := p.initDuckLake(ctx, tenantID, tenantMinioCfg, s3Prefix, pgSchema); err != nil {
+		_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
+		_ = p.db.DropTenantSchema(ctx, pgSchema)
+		return nil, fmt.Errorf("init ducklake: %w", err)
+	}
 
 	// Step 4: Persist customer tenant record.
 	customer := catalog.Tenant{
@@ -208,8 +220,9 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 // initDuckLake opens a short-lived DuckDB session to ATTACH the tenant's
 // DuckLake catalog. This causes DuckLake to initialize its metadata tables
 // inside the Postgres schema. The session is closed immediately after.
-func (p *Provisioner) initDuckLake(ctx context.Context, tenantID, s3Prefix, pgSchema string) error {
-	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, p.minioCfg, s3Prefix, pgSchema)
+// minioCfg should be the tenant-scoped credentials, not the admin credentials.
+func (p *Provisioner) initDuckLake(ctx context.Context, tenantID string, minioCfg config.MinIOConfig, s3Prefix, pgSchema string) error {
+	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, minioCfg, s3Prefix, pgSchema)
 	if err != nil {
 		return err
 	}
