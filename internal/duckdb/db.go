@@ -71,6 +71,10 @@ func OpenForTenant(
 			minioCfg.Bucket,
 			s3Prefix,
 		),
+
+		// Set the default schema to 'lake' so tables are created in DuckLake by default
+		// This ensures tables persist to S3 without requiring explicit lake. prefix
+		"SET search_path = 'lake';",
 	}
 
 	for i, stmt := range stmts {

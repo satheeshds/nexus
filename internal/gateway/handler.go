@@ -48,6 +48,7 @@ func (h *handler) handleQuery(ctx context.Context, query string) {
 
 	rows, err := h.session.Conn.QueryContext(ctx, query)
 	if err != nil {
+		slog.Error("gateway: query error", "tenant", h.session.TenantID, "sql", query, "err", err)
 		_ = h.backend.Send(&pgproto3.ErrorResponse{
 			Severity: "ERROR",
 			Code:     "42601",
