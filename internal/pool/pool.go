@@ -68,7 +68,7 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 	// Fetch tenant-specific MinIO credentials from the service account record.
 	sa, err := p.catalog.GetServiceAccountByTenantID(ctx, tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
+		return nil, fmt.Errorf("create session for tenant %q: %w", tenantID, err)
 	}
 
 	// Build tenant-specific MinIO config using stored credentials.
