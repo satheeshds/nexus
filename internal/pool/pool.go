@@ -51,7 +51,9 @@ func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIO
 // blocked. A race where two goroutines create sessions for the same tenant
 // simultaneously is resolved by keeping the first one stored and closing any
 // duplicate.
-func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*Session, error) {
+// s3Prefix and pgSchema are derived from the catalog service account record to
+// prevent mismatches from stale or untrusted caller-supplied values.
+func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	// First check under lock.
 	p.mu.Lock()
 	if s, ok := p.sessions[tenantID]; ok {
@@ -65,7 +67,9 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 	// Create the connection without holding the lock so other tenants are not blocked.
 	slog.Info("pool: creating new session", "tenant", tenantID)
 
-	// Fetch tenant-specific MinIO credentials from the service account record.
+	// Fetch tenant-specific credentials and routing info from the catalog.
+	// Using the canonical service account record prevents stale or untrusted
+	// caller-supplied s3Prefix/pgSchema values from being used.
 	sa, err := p.catalog.GetServiceAccountByTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("create session for tenant %q: %w", tenantID, err)
@@ -87,7 +91,7 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 		UsePathStyle: p.minioCfg.UsePathStyle,
 	}
 
-	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, s3Prefix, pgSchema)
+	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, sa.S3Prefix, sa.PGSchema)
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb for tenant %q: %w", tenantID, err)
 	}
@@ -96,8 +100,8 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 	newSession := &Session{
 		Conn:      conn,
 		TenantID:  tenantID,
-		S3Prefix:  s3Prefix,
-		PGSchema:  pgSchema,
+		S3Prefix:  sa.S3Prefix,
+		PGSchema:  sa.PGSchema,
 		CreatedAt: now,
 		LastUsed:  now,
 	}

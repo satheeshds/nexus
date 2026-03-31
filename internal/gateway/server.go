@@ -160,7 +160,7 @@ AuthOK:
 	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
 	// ── 4. Get/create tenant DuckDB session ──────────────────────────────────
-	session, err := s.pool.Get(ctx, claims.TenantID, claims.S3Prefix, claims.PGSchema)
+	session, err := s.pool.Get(ctx, claims.TenantID)
 	if err != nil {
 		_ = sendError(backend, fmt.Sprintf("could not open session: %v", err))
 		return
