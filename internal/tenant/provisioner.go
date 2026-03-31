@@ -93,6 +93,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("provision minio: %w", err)
 	}
 	minioAccessKey := minioCreds.AccessKey
+	minioSecretKey := minioCreds.SecretKey
 
 	// Step 4: Persist customer tenant record.
 	customer := catalog.Tenant{
@@ -129,6 +130,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		S3Prefix:       s3Prefix,
 		PGSchema:       pgSchema,
 		MinioAccessKey: minioAccessKey,
+		MinioSecretKey: minioSecretKey,
 		APIKeyHash:     string(serviceKeyHash),
 		CreatedAt:      time.Now(),
 	}

@@ -114,6 +114,7 @@ type ServiceAccount struct {
 	S3Prefix       string    `json:"s3_prefix"`
 	PGSchema       string    `json:"pg_schema"`
 	MinioAccessKey string    `json:"-"` // stored for deprovisioning; never exposed in API responses
+	MinioSecretKey string    `json:"-"` // stored for session initialization; never exposed in API responses
 	APIKeyHash     string    `json:"-"` // bcrypt hash; never exposed
 	CreatedAt      time.Time `json:"created_at"`
 }
@@ -121,9 +122,9 @@ type ServiceAccount struct {
 // InsertServiceAccount stores a new service account record.
 func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.APIKeyHash, sa.CreatedAt)
+		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.MinioSecretKey, sa.APIKeyHash, sa.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert service account: %w", err)
 	}
@@ -133,11 +134,11 @@ func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error
 // GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
 func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
 		FROM service_accounts WHERE tenant_id = $1
 	`, tenantID)
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
 		}
@@ -149,11 +150,11 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 // GetServiceAccount retrieves a service account by its ID.
 func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
 		FROM service_accounts WHERE id = $1
 	`, id)
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
 		}

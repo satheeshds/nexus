@@ -41,7 +41,7 @@ func main() {
 	authSvc := auth.NewService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
 
 	// Session pool
-	sessionPool := pool.New(cfg.Postgres, cfg.MinIO, cfg.Pool)
+	sessionPool := pool.New(catalogDB, cfg.Postgres, cfg.MinIO, cfg.Pool)
 	defer sessionPool.Close()
 
 	// Gateway server

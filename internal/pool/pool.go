@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/duckdb"
 )
@@ -26,14 +27,16 @@ type Pool struct {
 	mu       sync.Mutex
 	sessions map[string]*Session // key: tenantID
 
+	catalog  *catalog.DB
 	pgCfg    config.PostgresConfig
 	minioCfg config.MinIOConfig
 	poolCfg  config.PoolConfig
 }
 
-func New(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
+func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
 	p := &Pool{
 		sessions: make(map[string]*Session),
+		catalog:  catalog,
 		pgCfg:    pgCfg,
 		minioCfg: minioCfg,
 		poolCfg:  poolCfg,
@@ -61,7 +64,24 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 
 	// Create the connection without holding the lock so other tenants are not blocked.
 	slog.Info("pool: creating new session", "tenant", tenantID)
-	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, p.minioCfg, s3Prefix, pgSchema)
+
+	// Fetch tenant-specific MinIO credentials from the service account record.
+	sa, err := p.catalog.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
+	}
+
+	// Build tenant-specific MinIO config using stored credentials.
+	tenantMinioCfg := config.MinIOConfig{
+		Endpoint:     p.minioCfg.Endpoint,
+		AccessKey:    sa.MinioAccessKey,
+		SecretKey:    sa.MinioSecretKey,
+		Bucket:       p.minioCfg.Bucket,
+		UseSSL:       p.minioCfg.UseSSL,
+		UsePathStyle: p.minioCfg.UsePathStyle,
+	}
+
+	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, s3Prefix, pgSchema)
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb for tenant %q: %w", tenantID, err)
 	}
