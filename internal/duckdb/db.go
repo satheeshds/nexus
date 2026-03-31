@@ -81,17 +81,15 @@ func OpenForTenant(
 		slog.Debug("executing DuckDB init statement",
 			"tenant", tenantID,
 			"step", i+1,
-			"stmt_preview", stmt[:min(60, len(stmt))],
 		)
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			db.Close()
 			slog.Error("failed to execute DuckDB init statement",
 				"tenant", tenantID,
 				"step", i+1,
-				"stmt_preview", stmt[:min(60, len(stmt))],
 				"err", err,
 			)
-			return nil, fmt.Errorf("init duckdb [%s]: %w", stmt[:min(40, len(stmt))], err)
+			return nil, fmt.Errorf("init duckdb step %d: %w", i+1, err)
 		}
 	}
 
