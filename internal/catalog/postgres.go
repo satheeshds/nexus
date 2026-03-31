@@ -27,11 +27,10 @@ type Tenant struct {
 
 // DB wraps a pgxpool and exposes catalog operations.
 type DB struct {
-	pool          *pgxpool.Pool
-	encryptionKey string
+	pool *pgxpool.Pool
 }
 
-func New(ctx context.Context, cfg config.PostgresConfig, encryptionKey string) (*DB, error) {
+func New(ctx context.Context, cfg config.PostgresConfig) (*DB, error) {
 	pool, err := pgxpool.New(ctx, cfg.URL())
 	if err != nil {
 		return nil, fmt.Errorf("create pg pool: %w", err)
@@ -39,7 +38,7 @@ func New(ctx context.Context, cfg config.PostgresConfig, encryptionKey string) (
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	return &DB{pool: pool, encryptionKey: encryptionKey}, nil
+	return &DB{pool: pool}, nil
 }
 
 func (db *DB) Close() {
@@ -121,12 +120,11 @@ type ServiceAccount struct {
 }
 
 // InsertServiceAccount stores a new service account record.
-// The MinIO secret key is encrypted at rest using pgcrypto symmetric encryption.
 func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
 	_, err := db.pool.Exec(ctx, `
 		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, pgp_sym_encrypt($6::text, $9::text), $7, $8)
-	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.MinioSecretKey, sa.APIKeyHash, sa.CreatedAt, db.encryptionKey)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.MinioSecretKey, sa.APIKeyHash, sa.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert service account: %w", err)
 	}
@@ -134,41 +132,33 @@ func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error
 }
 
 // GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
-// The MinIO secret key is decrypted transparently using pgcrypto.
 func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key,
-		       COALESCE(pgp_sym_decrypt(minio_secret_key, $2::text)::text, '') as minio_secret_key,
-		       api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
 		FROM service_accounts WHERE tenant_id = $1
-	`, tenantID, db.encryptionKey)
+	`, tenantID)
 	var sa ServiceAccount
 	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
 		}
-		// pgp_sym_decrypt errors (wrong key, corrupted data) surface as pgx errors here.
-		return nil, fmt.Errorf("get service account for tenant %q (decryption may have failed — verify NEXUS_CATALOG_ENCRYPTION_KEY): %w", tenantID, err)
+		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
 	}
 	return &sa, nil
 }
 
 // GetServiceAccount retrieves a service account by its ID.
-// The MinIO secret key is decrypted transparently using pgcrypto.
 func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key,
-		       COALESCE(pgp_sym_decrypt(minio_secret_key, $2::text)::text, '') as minio_secret_key,
-		       api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
 		FROM service_accounts WHERE id = $1
-	`, id, db.encryptionKey)
+	`, id)
 	var sa ServiceAccount
 	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
 		}
-		// pgp_sym_decrypt errors (wrong key, corrupted data) surface as pgx errors here.
-		return nil, fmt.Errorf("get service account %q (decryption may have failed — verify NEXUS_CATALOG_ENCRYPTION_KEY): %w", id, err)
+		return nil, fmt.Errorf("get service account %q: %w", id, err)
 	}
 	return &sa, nil
 }

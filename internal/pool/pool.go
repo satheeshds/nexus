@@ -78,15 +78,12 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	if sa.MinioSecretKey == "" {
 		return nil, fmt.Errorf("create session for tenant %q: missing MinIO secret key; service account credentials must be updated", tenantID)
 	}
+
 	slog.Debug("fetched tenant MinIO credentials",
 		"tenant", tenantID,
 		"has_access_key", sa.MinioAccessKey != "",
 		"has_secret_key", sa.MinioSecretKey != "",
 	)
-
-	if sa.MinioSecretKey == "" {
-		return nil, fmt.Errorf("create session for tenant %q: MinIO secret key is not set; tenant credentials may need to be rotated (run migration 009 or re-register tenant)", tenantID)
-	}
 
 	// Build tenant-specific MinIO config using stored credentials.
 	tenantMinioCfg := config.MinIOConfig{
