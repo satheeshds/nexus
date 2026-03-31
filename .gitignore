@@ -7,3 +7,4 @@ gateway
 *.dll
 *.so
 *.dylib
+.tmp

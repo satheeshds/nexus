@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/duckdb"
 )
@@ -26,14 +27,16 @@ type Pool struct {
 	mu       sync.Mutex
 	sessions map[string]*Session // key: tenantID
 
+	catalog  *catalog.DB
 	pgCfg    config.PostgresConfig
 	minioCfg config.MinIOConfig
 	poolCfg  config.PoolConfig
 }
 
-func New(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
+func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
 	p := &Pool{
 		sessions: make(map[string]*Session),
+		catalog:  catalog,
 		pgCfg:    pgCfg,
 		minioCfg: minioCfg,
 		poolCfg:  poolCfg,
@@ -48,7 +51,9 @@ func New(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg confi
 // blocked. A race where two goroutines create sessions for the same tenant
 // simultaneously is resolved by keeping the first one stored and closing any
 // duplicate.
-func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*Session, error) {
+// s3Prefix and pgSchema are derived from the catalog service account record to
+// prevent mismatches from stale or untrusted caller-supplied values.
+func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	// First check under lock.
 	p.mu.Lock()
 	if s, ok := p.sessions[tenantID]; ok {
@@ -61,7 +66,36 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 
 	// Create the connection without holding the lock so other tenants are not blocked.
 	slog.Info("pool: creating new session", "tenant", tenantID)
-	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, p.minioCfg, s3Prefix, pgSchema)
+
+	// Fetch tenant-specific credentials and routing info from the catalog.
+	// Using the canonical service account record prevents stale or untrusted
+	// caller-supplied s3Prefix/pgSchema values from being used.
+	sa, err := p.catalog.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("create session for tenant %q: %w", tenantID, err)
+	}
+
+	if sa.MinioSecretKey == "" {
+		return nil, fmt.Errorf("create session for tenant %q: missing MinIO secret key; service account credentials must be updated", tenantID)
+	}
+
+	slog.Debug("fetched tenant MinIO credentials",
+		"tenant", tenantID,
+		"has_access_key", sa.MinioAccessKey != "",
+		"has_secret_key", sa.MinioSecretKey != "",
+	)
+
+	// Build tenant-specific MinIO config using stored credentials.
+	tenantMinioCfg := config.MinIOConfig{
+		Endpoint:     p.minioCfg.Endpoint,
+		AccessKey:    sa.MinioAccessKey,
+		SecretKey:    sa.MinioSecretKey,
+		Bucket:       p.minioCfg.Bucket,
+		UseSSL:       p.minioCfg.UseSSL,
+		UsePathStyle: p.minioCfg.UsePathStyle,
+	}
+
+	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, sa.S3Prefix, sa.PGSchema)
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb for tenant %q: %w", tenantID, err)
 	}
@@ -70,8 +104,8 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 	newSession := &Session{
 		Conn:      conn,
 		TenantID:  tenantID,
-		S3Prefix:  s3Prefix,
-		PGSchema:  pgSchema,
+		S3Prefix:  sa.S3Prefix,
+		PGSchema:  sa.PGSchema,
 		CreatedAt: now,
 		LastUsed:  now,
 	}

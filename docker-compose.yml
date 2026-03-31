@@ -68,6 +68,8 @@ services:
         condition: service_completed_successfully
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       NEXUS_POSTGRES_HOST:     postgres
       NEXUS_POSTGRES_PORT:     5432
@@ -99,6 +101,8 @@ services:
         condition: service_healthy
     ports:
       - "5433:5433"   # Postgres-wire query endpoint
+    env_file:
+      - .env
     environment:
       NEXUS_POSTGRES_HOST:     postgres
       NEXUS_POSTGRES_PORT:     5432

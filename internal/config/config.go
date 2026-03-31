@@ -52,12 +52,12 @@ func (p PostgresConfig) URL() string {
 }
 
 type MinIOConfig struct {
-	Endpoint        string `mapstructure:"endpoint"`
-	AccessKey       string `mapstructure:"access_key"`
-	SecretKey       string `mapstructure:"secret_key"`
-	Bucket          string `mapstructure:"bucket"`
-	UseSSL          bool   `mapstructure:"use_ssl"`
-	UsePathStyle    bool   `mapstructure:"use_path_style"`
+	Endpoint     string `mapstructure:"endpoint"`
+	AccessKey    string `mapstructure:"access_key"`    // Admin credentials for provisioning tenant service accounts
+	SecretKey    string `mapstructure:"secret_key"`    // Admin credentials for provisioning tenant service accounts
+	Bucket       string `mapstructure:"bucket"`
+	UseSSL       bool   `mapstructure:"use_ssl"`
+	UsePathStyle bool   `mapstructure:"use_path_style"`
 }
 
 type DuckLakeConfig struct {
@@ -97,8 +97,6 @@ func Load() (*Config, error) {
 	v.SetDefault("postgres.sslmode", "disable")
 	v.SetDefault("postgres.dbname", "lake_catalog")
 	v.SetDefault("minio.endpoint", "localhost:9000")
-	v.SetDefault("minio.access_key", "minioadmin")
-	v.SetDefault("minio.secret_key", "minioadmin")
 	v.SetDefault("minio.bucket", "lakehouse")
 	v.SetDefault("minio.use_ssl", false)
 	v.SetDefault("minio.use_path_style", true)
