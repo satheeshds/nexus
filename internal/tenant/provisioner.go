@@ -147,23 +147,29 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 }
 
 // RotateServiceAccountKey generates a new API key for the tenant's service account,
-// stores its bcrypt hash, and returns the new plain key to the caller.
-// This is intended for use by the platform to manage ingestion credentials.
-func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID string) (string, error) {
+// stores its bcrypt hash, and returns the new plain key along with the service account ID.
+func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error) {
 	newKey, err := generateAPIKey()
 	if err != nil {
-		return "", fmt.Errorf("generate api key: %w", err)
+		return "", "", fmt.Errorf("generate api key: %w", err)
 	}
 	newHash, err := bcrypt.GenerateFromPassword([]byte(newKey), bcrypt.DefaultCost)
 	if err != nil {
-		return "", fmt.Errorf("hash api key: %w", err)
-	}
-	if err := p.db.UpdateServiceAccountKeyHash(ctx, tenantID, string(newHash)); err != nil {
-		return "", fmt.Errorf("update api key hash: %w", err)
+		return "", "", fmt.Errorf("hash api key: %w", err)
 	}
 
-	slog.Info("service account key rotated", "tenant", tenantID)
-	return newKey, nil
+	// Lookup service ID to ensure consistency and return accurate metadata.
+	sa, err := p.db.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return "", "", fmt.Errorf("get service account: %w", err)
+	}
+
+	if err := p.db.UpdateServiceAccountKeyHash(ctx, tenantID, string(newHash)); err != nil {
+		return "", "", fmt.Errorf("update api key hash: %w", err)
+	}
+
+	slog.Info("service account key rotated", "tenant", tenantID, "service_id", sa.ID)
+	return newKey, sa.ID, nil
 }
 
 // Delete tears down a tenant's catalog, MinIO account, and registry record.

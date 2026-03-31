@@ -10,6 +10,7 @@ import (
 	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/pool"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Server listens for incoming Postgres wire connections and routes them
@@ -121,10 +122,28 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	claims, err := s.auth.Validate(pwdMsg.Password)
-	if err != nil || claims.TenantID != tenantID {
-		_ = sendError(backend, "authentication failed")
-		return
+	if err == nil && claims.TenantID == tenantID {
+		// Valid JWT
+		goto AuthOK
 	}
+
+	// Try Service Account authentication
+	if sa, err := s.catalog.GetServiceAccount(ctx, tenantID); err == nil {
+		if bcrypt.CompareHashAndPassword([]byte(sa.APIKeyHash), []byte(pwdMsg.Password)) == nil {
+			// Valid Service Account
+			claims = &auth.TenantClaims{
+				TenantID: sa.TenantID,
+				S3Prefix: sa.S3Prefix,
+				PGSchema: sa.PGSchema,
+			}
+			goto AuthOK
+		}
+	}
+
+	_ = sendError(backend, "authentication failed")
+	return
+
+AuthOK:
 
 	// ── 3. Auth OK ────────────────────────────────────────────────────────────
 	if err := backend.Send(&pgproto3.AuthenticationOk{}); err != nil {

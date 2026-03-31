@@ -337,7 +337,7 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
-	newKey, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
+	newKey, serviceID, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
 	if err != nil {
 		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
 		if errors.Is(err, catalog.ErrNotFound) {
@@ -352,6 +352,7 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusOK, map[string]string{
 		"tenant_id":       tenantID,
+		"service_id":      serviceID,
 		"service_api_key": newKey,
 	})
 }
