@@ -71,6 +71,12 @@ func (p *Pool) Get(ctx context.Context, tenantID, s3Prefix, pgSchema string) (*S
 		return nil, fmt.Errorf("create session for tenant %q: %w", tenantID, err)
 	}
 
+	slog.Debug("fetched tenant MinIO credentials",
+		"tenant", tenantID,
+		"minio_access_key", sa.MinioAccessKey,
+		"has_secret_key", sa.MinioSecretKey != "",
+	)
+
 	// Build tenant-specific MinIO config using stored credentials.
 	tenantMinioCfg := config.MinIOConfig{
 		Endpoint:     p.minioCfg.Endpoint,

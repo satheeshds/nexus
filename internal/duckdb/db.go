@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/satheeshds/nexus/internal/config"
@@ -26,6 +27,15 @@ func OpenForTenant(
 	s3Prefix string,
 	pgSchema string,
 ) (*Conn, error) {
+	slog.Debug("opening DuckDB session",
+		"tenant", tenantID,
+		"s3_prefix", s3Prefix,
+		"pg_schema", pgSchema,
+		"minio_endpoint", minioCfg.Endpoint,
+		"minio_bucket", minioCfg.Bucket,
+		"minio_access_key", minioCfg.AccessKey,
+	)
+
 	// Open an in-memory DuckDB instance (one per tenant session)
 	db, err := sql.Open("duckdb", "")
 	if err != nil {
@@ -63,12 +73,29 @@ func OpenForTenant(
 		),
 	}
 
-	for _, stmt := range stmts {
+	for i, stmt := range stmts {
+		slog.Debug("executing DuckDB init statement",
+			"tenant", tenantID,
+			"step", i+1,
+			"stmt_preview", stmt[:min(60, len(stmt))],
+		)
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			db.Close()
+			slog.Error("failed to execute DuckDB init statement",
+				"tenant", tenantID,
+				"step", i+1,
+				"stmt_preview", stmt[:min(60, len(stmt))],
+				"err", err,
+			)
 			return nil, fmt.Errorf("init duckdb [%s]: %w", stmt[:min(40, len(stmt))], err)
 		}
 	}
+
+	slog.Info("DuckDB session created successfully",
+		"tenant", tenantID,
+		"s3_prefix", s3Prefix,
+		"data_path", fmt.Sprintf("s3://%s/%s/", minioCfg.Bucket, s3Prefix),
+	)
 
 	return &Conn{db: db, tenantID: tenantID, lakeName: "lake"}, nil
 }

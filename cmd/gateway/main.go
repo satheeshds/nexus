@@ -16,8 +16,13 @@ import (
 )
 
 func main() {
+	// Allow setting log level via environment variable for debugging
+	logLevel := slog.LevelInfo
+	if os.Getenv("LOG_LEVEL") == "debug" || os.Getenv("LOG_LEVEL") == "DEBUG" {
+		logLevel = slog.LevelDebug
+	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: logLevel,
 	})))
 
 	cfg, err := config.Load()
