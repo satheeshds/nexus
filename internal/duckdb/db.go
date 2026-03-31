@@ -31,6 +31,13 @@ func OpenForTenant(
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb: %w", err)
 	}
+	// Force a single connection so that session-level settings — in particular
+	// the CREATE SECRET statement for MinIO — are visible to every subsequent
+	// query on this session.  DuckDB secrets are scoped to the connection, not
+	// the database, so without this the sql.DB pool could hand out a fresh
+	// connection that has no S3 credentials, causing DuckLake writes to MinIO
+	// to fail silently and tables to never be persisted.
+	db.SetMaxOpenConns(1)
 
 	stmts := []string{
 		// Install and load required extensions
