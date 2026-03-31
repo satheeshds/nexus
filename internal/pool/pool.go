@@ -75,6 +75,9 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 		return nil, fmt.Errorf("create session for tenant %q: %w", tenantID, err)
 	}
 
+	if sa.MinioSecretKey == "" {
+		return nil, fmt.Errorf("create session for tenant %q: missing MinIO secret key; service account credentials must be updated", tenantID)
+	}
 	slog.Debug("fetched tenant MinIO credentials",
 		"tenant", tenantID,
 		"minio_access_key", sa.MinioAccessKey,
