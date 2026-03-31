@@ -33,7 +33,6 @@ func OpenForTenant(
 		"pg_schema", pgSchema,
 		"minio_endpoint", minioCfg.Endpoint,
 		"minio_bucket", minioCfg.Bucket,
-		"minio_access_key", minioCfg.AccessKey,
 	)
 
 	// Open an in-memory DuckDB instance (one per tenant session)
