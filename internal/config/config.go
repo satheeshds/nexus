@@ -16,6 +16,7 @@ type Config struct {
 	DuckLake DuckLakeConfig `mapstructure:"ducklake"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Pool     PoolConfig     `mapstructure:"pool"`
+	Catalog  CatalogConfig  `mapstructure:"catalog"`
 }
 
 type GatewayConfig struct {
@@ -63,6 +64,13 @@ type MinIOConfig struct {
 type DuckLakeConfig struct {
 	// Base S3 path where all tenant data lives: s3://lakehouse/tenants/
 	TenantBasePath string `mapstructure:"tenant_base_path"`
+}
+
+type CatalogConfig struct {
+	// EncryptionKey is used to encrypt sensitive credentials (e.g., MinIO secret keys)
+	// stored in Postgres via pgcrypto. Must be set to the same value across all service
+	// instances. Rotate by re-encrypting all rows before changing this value.
+	EncryptionKey string `mapstructure:"encryption_key"`
 }
 
 type AuthConfig struct {
@@ -131,10 +139,19 @@ func Load() (*Config, error) {
 	v.BindEnv("minio.bucket", "NEXUS_MINIO_BUCKET")
 	v.BindEnv("auth.jwt_secret", "NEXUS_AUTH_JWT_SECRET")
 	v.BindEnv("auth.admin_api_key", "NEXUS_AUTH_ADMIN_API_KEY")
+	v.BindEnv("catalog.encryption_key", "NEXUS_CATALOG_ENCRYPTION_KEY")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
+
+	if cfg.Catalog.EncryptionKey == "" {
+		return nil, fmt.Errorf("catalog encryption key is required (set NEXUS_CATALOG_ENCRYPTION_KEY)")
+	}
+	if len(cfg.Catalog.EncryptionKey) < 32 {
+		return nil, fmt.Errorf("catalog encryption key must be at least 32 characters (set NEXUS_CATALOG_ENCRYPTION_KEY)")
+	}
+
 	return &cfg, nil
 }

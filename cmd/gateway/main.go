@@ -35,7 +35,7 @@ func main() {
 	defer stop()
 
 	// Catalog DB
-	catalogDB, err := catalog.New(ctx, cfg.Postgres)
+	catalogDB, err := catalog.New(ctx, cfg.Postgres, cfg.Catalog.EncryptionKey)
 	if err != nil {
 		slog.Error("connect to postgres", "err", err)
 		os.Exit(1)

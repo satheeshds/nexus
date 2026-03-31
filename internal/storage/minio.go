@@ -19,6 +19,13 @@ type Client struct {
 }
 
 func New(cfg config.MinIOConfig) (*Client, error) {
+	if cfg.AccessKey == "" {
+		return nil, fmt.Errorf("minio admin access key is required (set NEXUS_MINIO_ACCESS_KEY)")
+	}
+	if cfg.SecretKey == "" {
+		return nil, fmt.Errorf("minio admin secret key is required (set NEXUS_MINIO_SECRET_KEY)")
+	}
+
 	obj, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
 		Secure: cfg.UseSSL,
