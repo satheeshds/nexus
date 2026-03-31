@@ -122,9 +122,14 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	claims, err := s.auth.Validate(pwdMsg.Password)
-	if err == nil && claims.TenantID == tenantID {
-		// Valid JWT
-		goto AuthOK
+	if err == nil {
+		if claims.TenantID == tenantID {
+			// Valid JWT
+			goto AuthOK
+		}
+		slog.Warn("gateway: JWT tenant mismatch", "expected", tenantID, "actual", claims.TenantID)
+	} else {
+		slog.Debug("gateway: JWT validation failed (might be an API key)", "err", err)
 	}
 
 	// Try Service Account authentication
@@ -138,6 +143,9 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			}
 			goto AuthOK
 		}
+		slog.Warn("gateway: service account password mismatch", "tenant", tenantID)
+	} else {
+		slog.Warn("gateway: service account not found", "tenant", tenantID, "err", err)
 	}
 
 	_ = sendError(backend, "authentication failed")
@@ -157,6 +165,8 @@ AuthOK:
 	} {
 		_ = backend.Send(&pgproto3.ParameterStatus{Name: kv[0], Value: kv[1]})
 	}
+	// Send BackendKeyData (some clients expect this after AuthOK)
+	_ = backend.Send(&pgproto3.BackendKeyData{ProcessID: 1234, SecretKey: 5678})
 	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
 	// ── 4. Get/create tenant DuckDB session ──────────────────────────────────
