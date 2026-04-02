@@ -12,6 +12,12 @@ import (
 	"github.com/satheeshds/nexus/internal/duckdb"
 )
 
+// catalogStore is the subset of catalog.DB used by Pool.
+// Using an interface here enables testing without a real PostgreSQL instance.
+type catalogStore interface {
+	GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*catalog.ServiceAccount, error)
+}
+
 // Session holds an open DuckDB+DuckLake connection for a tenant.
 type Session struct {
 	Conn      *duckdb.Conn
@@ -27,7 +33,7 @@ type Pool struct {
 	mu       sync.Mutex
 	sessions map[string]*Session // key: tenantID
 
-	catalog  *catalog.DB
+	catalog  catalogStore
 	pgCfg    config.PostgresConfig
 	minioCfg config.MinIOConfig
 	poolCfg  config.PoolConfig

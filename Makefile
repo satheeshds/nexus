@@ -1,7 +1,8 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy swagger
+.PHONY: help build build-gateway build-control build-loadtest dev down migrate test bench loadtest tidy swagger
 
-BINARY_GATEWAY := bin/nexus-gateway
-BINARY_CONTROL := bin/nexus-control
+BINARY_GATEWAY  := bin/nexus-gateway
+BINARY_CONTROL  := bin/nexus-control
+BINARY_LOADTEST := bin/nexus-loadtest
 DOCKER_COMPOSE  := docker compose -f deploy/docker-compose.yml --env-file .env
 
 help: ## Show this help
@@ -9,13 +10,16 @@ help: ## Show this help
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
-build: build-gateway build-control ## Build both binaries
+build: build-gateway build-control build-loadtest ## Build all binaries
 
 build-gateway: ## Build the pgwire gateway
 	CGO_ENABLED=1 go build -ldflags="-s -w" -o $(BINARY_GATEWAY) ./cmd/gateway
 
 build-control: ## Build the control plane
 	CGO_ENABLED=1 go build -ldflags="-s -w" -o $(BINARY_CONTROL) ./cmd/control
+
+build-loadtest: ## Build the data-layer load test tool
+	CGO_ENABLED=0 go build -ldflags="-s -w" -o $(BINARY_LOADTEST) ./cmd/loadtest
 
 # ── Dev Stack ─────────────────────────────────────────────────────────────────
 
@@ -65,6 +69,17 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+bench: ## Run data-layer benchmarks (requires NEXUS_POSTGRES_HOST)
+	go test -run='^$$' -bench=. -benchmem -count=1 \
+	  ./internal/catalog/... ./internal/pool/...
+
+loadtest: build-loadtest ## Run the standalone load test against a running gateway
+	$(BINARY_LOADTEST) \
+	  -dsn "$(NEXUS_LOADTEST_DSN)" \
+	  -concurrency $(or $(NEXUS_LOADTEST_CONCURRENCY),10) \
+	  -duration $(or $(NEXUS_LOADTEST_DURATION),30s) \
+	  -query "$(or $(NEXUS_LOADTEST_QUERY),SELECT 1)"
 
 tidy: ## Tidy go modules
 	go mod tidy
