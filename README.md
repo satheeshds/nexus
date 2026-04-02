@@ -118,7 +118,36 @@ Connect to the **Nexus Gateway** using any Postgres-compatible client.
 
 ---
 
-## 📜 License
+## 🧪 Testing
+
+Run the unit test suite with:
+
+```bash
+go test ./...
+```
+
+To see per-package coverage:
+
+```bash
+go test -cover ./...
+```
+
+### Test Coverage
+
+The following packages have unit tests that can be run without any external services (no Postgres, MinIO, or DuckDB required):
+
+| Package | Coverage | Notes |
+|---|---|---|
+| `internal/auth` | ~82% | JWT issue & validate, expiry, tamper, wrong-secret scenarios |
+| `internal/config` | ~98% | DSN/URL formatting, default values, env-var overrides |
+| `internal/control` | ~83% | All HTTP handlers, admin/JWT middleware, mock catalog & provisioner |
+| `internal/tenant` | ~16% | Pure helpers: slug generation, API key generation, password validation |
+
+> **Note:** `internal/catalog`, `internal/storage`, `internal/duckdb`, `internal/pool`, and
+> `internal/gateway` require live infrastructure (Postgres, MinIO, DuckDB) and are covered by
+> integration testing only. The packages above are fully unit-testable with no external dependencies.
+
+---
 
 Distributed under the MIT License.
 
