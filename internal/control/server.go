@@ -1,6 +1,7 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -17,15 +18,29 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
+// TenantCatalog is the subset of catalog.DB methods used by the control server.
+type TenantCatalog interface {
+	GetTenantByEmail(ctx context.Context, email string) (*catalog.Tenant, error)
+	GetTenant(ctx context.Context, id string) (*catalog.Tenant, error)
+	ListTenants(ctx context.Context) ([]catalog.Tenant, error)
+	GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*catalog.ServiceAccount, error)
+}
+
+// TenantProvisioner is the subset of tenant.Provisioner methods used by the control server.
+type TenantProvisioner interface {
+	Register(ctx context.Context, req tenant.RegisterRequest) (*tenant.RegisterResponse, error)
+	Delete(ctx context.Context, tenantID string) error
+}
+
 type Server struct {
 	router      *chi.Mux
-	provisioner *tenant.Provisioner
-	catalog     *catalog.DB
+	provisioner TenantProvisioner
+	catalog     TenantCatalog
 	auth        *auth.Service
 	adminAPIKey string
 }
 
-func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service, adminAPIKey string) *Server {
+func NewServer(p TenantProvisioner, db TenantCatalog, a *auth.Service, adminAPIKey string) *Server {
 	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey}
 	s.router = s.buildRouter()
 	return s

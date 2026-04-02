@@ -118,6 +118,30 @@ Connect to the **Nexus Gateway** using any Postgres-compatible client.
 
 ---
 
+## 🧪 Testing
+
+Unit tests are provided for all packages that can be tested without live infrastructure. Run them with:
+
+```bash
+make test
+# or directly:
+go test ./internal/...
+```
+
+### Coverage Summary
+
+| Package | Coverage | Notes |
+|---|---|---|
+| `internal/auth` | **82%** | JWT issue & validate |
+| `internal/config` | **98%** | DSN/URL builders & defaults |
+| `internal/control` | **97%** | All HTTP handlers, middleware |
+| `internal/storage` | **8%** | IAM policy builder tested; MinIO calls require live server |
+| `internal/tenant` | **15%** | `makeSlug` & `generateAPIKey` tested; provisioning requires live infra |
+
+The `gateway`, `pool`, and `duckdb` packages require a live DuckDB/PostgreSQL/MinIO environment and are covered by integration testing only.
+
+---
+
 ## 📜 License
 
 Distributed under the MIT License.
