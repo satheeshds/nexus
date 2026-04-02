@@ -2,9 +2,7 @@ package pool_test
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -172,8 +170,6 @@ func BenchmarkPoolGet_ConcurrentDifferentTenants(b *testing.B) {
 		}
 	}
 
-	var counter uint64
-
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
@@ -183,8 +179,6 @@ func BenchmarkPoolGet_ConcurrentDifferentTenants(b *testing.B) {
 			if _, err := p.Get(ctx, id); err != nil {
 				b.Errorf("Get(%s): %v", id, err)
 			}
-			atomic.AddUint64(&counter, 1)
-			_ = fmt.Sprintf("%d", counter) // prevent optimisation
 		}
 	})
 }

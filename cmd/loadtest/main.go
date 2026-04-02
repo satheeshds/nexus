@@ -93,11 +93,11 @@ func (s *stats) report(elapsed time.Duration) {
 	fmt.Println("─────────────────────────────────────────────")
 }
 
-func percentile(sorted []time.Duration, p float64) time.Duration {
+func percentile(sorted []time.Duration, pct float64) time.Duration {
 	if len(sorted) == 0 {
 		return 0
 	}
-	idx := int(math.Ceil(p/100*float64(len(sorted)))) - 1
+	idx := int(math.Ceil(pct/100*float64(len(sorted)))) - 1
 	if idx < 0 {
 		idx = 0
 	}
@@ -107,15 +107,15 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[idx]
 }
 
-func meanDuration(d []time.Duration) time.Duration {
-	if len(d) == 0 {
+func meanDuration(durations []time.Duration) time.Duration {
+	if len(durations) == 0 {
 		return 0
 	}
 	var sum time.Duration
-	for _, v := range d {
+	for _, v := range durations {
 		sum += v
 	}
-	return sum / time.Duration(len(d))
+	return sum / time.Duration(len(durations))
 }
 
 // worker executes the configured query in a loop until ctx is cancelled.
