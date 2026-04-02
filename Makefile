@@ -1,4 +1,4 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy swagger
+.PHONY: help build build-gateway build-control dev down migrate test test-integration tidy swagger
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
@@ -65,6 +65,9 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+test-integration: ## Run integration tests (requires Docker)
+	go test -tags integration -v -timeout 10m ./...
 
 tidy: ## Tidy go modules
 	go mod tidy
