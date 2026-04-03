@@ -419,11 +419,11 @@ func (s *Server) handleAdminQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if strings.TrimSpace(req.Query) == "" {
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
 		writeError(w, http.StatusBadRequest, "query is required")
 		return
 	}
-	req.Query = strings.TrimSpace(req.Query)
 
 	tenants, err := s.listTenants(r.Context())
 	if err != nil {
@@ -435,7 +435,7 @@ func (s *Server) handleAdminQuery(w http.ResponseWriter, r *http.Request) {
 	results := make([]tenantQueryResult, 0, len(tenants))
 	for _, t := range tenants {
 		res := tenantQueryResult{TenantID: t.ID, OrgName: t.OrgName}
-		rowsAffected, execErr := s.queryRunner.ExecForTenant(r.Context(), t.ID, req.Query)
+		rowsAffected, execErr := s.queryRunner.ExecForTenant(r.Context(), t.ID, query)
 		if execErr != nil {
 			slog.Warn("admin query: exec failed", "tenant", t.ID, "err", execErr)
 			res.Success = false
