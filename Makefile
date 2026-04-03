@@ -1,11 +1,34 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy swagger
+APP_NAME ?= nexus
+IMAGE    ?= satheeshds/$(APP_NAME)
+TAG      ?= latest
+DOCKER   ?= docker
+COMPOSE  ?= docker compose
+ENV_FILE ?= .env
+
+export DOCKER_BUILDKIT ?= 1
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
-DOCKER_COMPOSE  := docker compose -f deploy/docker-compose.yml --env-file .env
+DOCKER_COMPOSE  := $(COMPOSE) -f deploy/docker-compose.yml --env-file $(ENV_FILE)
+
+.PHONY: help image push compose-up compose-down build build-gateway build-control dev dev-infra down logs migrate migrate-status run-control run-gateway test test-integration tidy lint swagger demo-register demo-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# ── Docker Image ──────────────────────────────────────────────────────────────
+
+image: ## Build all Docker images
+	$(DOCKER_COMPOSE) build
+
+push: ## Push all Docker images
+	$(DOCKER_COMPOSE) push
+
+compose-up: ## Start the full stack with docker compose
+	$(DOCKER_COMPOSE) up -d --build
+
+compose-down: ## Stop the stack
+	$(DOCKER_COMPOSE) down
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -65,6 +88,9 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+test-integration: ## Run integration tests
+	go test -tags integration -v -timeout 10m ./...
 
 tidy: ## Tidy go modules
 	go mod tidy
