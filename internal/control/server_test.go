@@ -1,32 +1,32 @@
 package control
 
 import (
-"bytes"
-"context"
-"encoding/json"
-"net/http"
-"net/http/httptest"
-"testing"
-"time"
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
 
-"github.com/satheeshds/nexus/internal/catalog"
+	"github.com/satheeshds/nexus/internal/catalog"
 )
 
 // ── Stubs ─────────────────────────────────────────────────────────────────────
 
 // stubQueryRunner records the tenants it was asked to run the query against.
 type stubQueryRunner struct {
-called       []string // tenant IDs that were queried
-rowsAffected int64
-failFor      string // if non-empty, return an error for this tenant ID
+	called       []string // tenant IDs that were queried
+	rowsAffected int64
+	failFor      string // if non-empty, return an error for this tenant ID
 }
 
 func (r *stubQueryRunner) ExecForTenant(_ context.Context, tenantID, _ string) (int64, error) {
-r.called = append(r.called, tenantID)
-if tenantID == r.failFor {
-return 0, stubError("stub exec error")
-}
-return r.rowsAffected, nil
+	r.called = append(r.called, tenantID)
+	if tenantID == r.failFor {
+		return 0, stubError("stub exec error")
+	}
+	return r.rowsAffected, nil
 }
 
 type stubError string
