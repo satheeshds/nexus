@@ -2,7 +2,7 @@ APP_NAME ?= nexus
 IMAGE    ?= satheeshds/$(APP_NAME)
 TAG      ?= latest
 DOCKER   ?= docker
-COMPOSE  ?= docker compose
+COMPOSE  ?= $(DOCKER) compose
 ENV_FILE ?= .env
 
 export DOCKER_BUILDKIT ?= 1
