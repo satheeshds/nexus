@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -38,6 +39,9 @@ type Server struct {
 }
 
 func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service, adminAPIKey string, qr TenantQueryRunner) *Server {
+	if qr == nil {
+		panic("control.NewServer: TenantQueryRunner must not be nil")
+	}
 	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey, queryRunner: qr}
 	s.router = s.buildRouter()
 	return s
@@ -415,10 +419,11 @@ func (s *Server) handleAdminQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Query == "" {
+	if strings.TrimSpace(req.Query) == "" {
 		writeError(w, http.StatusBadRequest, "query is required")
 		return
 	}
+	req.Query = strings.TrimSpace(req.Query)
 
 	tenants, err := s.listTenants(r.Context())
 	if err != nil {
