@@ -97,7 +97,7 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 test: ## Run all tests
 	go test ./...
 
-test-integration: ## Run integration tests
+test-integration: ## Run tests with the 'integration' build tag (requires external services; add //go:build integration to test files)
 	go test -tags integration -v -timeout 10m ./...
 
 tidy: ## Tidy go modules
