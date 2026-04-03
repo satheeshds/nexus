@@ -22,7 +22,15 @@ image: ## Build all Docker images
 	$(DOCKER_COMPOSE) build
 
 push: ## Push all Docker images
-	$(DOCKER_COMPOSE) push
+	@set -e; \
+	if $(DOCKER_COMPOSE) config | grep -Eq '^[[:space:]]*image:'; then \
+		$(DOCKER_COMPOSE) push; \
+	else \
+		echo "Error: deploy/docker-compose.yml does not define explicit image names for services."; \
+		echo "docker compose push requires services to have image: entries."; \
+		echo "Add image: definitions (for example using IMAGE=$(IMAGE) and TAG=$(TAG)) or push images with explicit build/tag/push commands."; \
+		exit 1; \
+	fi
 
 compose-up: ## Start the full stack with docker compose
 	$(DOCKER_COMPOSE) up -d --build
