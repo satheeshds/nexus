@@ -18,8 +18,14 @@ help: ## Show this help
 
 # ── Docker Image ──────────────────────────────────────────────────────────────
 
-image: ## Build all Docker images
-	$(DOCKER_COMPOSE) build
+image: control-image gateway-image ## Build all Docker images
+#	$(DOCKER_COMPOSE) build
+
+control-image: ## Build nexus control image
+	$(DOCKER) build -f deploy/Dockerfile.control -t nexus-control .
+
+gateway-image: ## Build nexus gateway image
+	$(DOCKER) build -f deploy/Dockerfile.gateway -t nexus-gateway .
 
 push: ## Push all Docker images
 	@set -e; \
