@@ -27,19 +27,21 @@ type Pool struct {
 	mu       sync.Mutex
 	sessions map[string]*Session // key: tenantID
 
-	catalog  *catalog.DB
-	pgCfg    config.PostgresConfig
-	minioCfg config.MinIOConfig
-	poolCfg  config.PoolConfig
+	catalog    *catalog.DB
+	pgCfg      config.PostgresConfig
+	minioCfg   config.MinIOConfig
+	poolCfg    config.PoolConfig
+	duckdbCfg  config.DuckDBConfig
 }
 
-func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
+func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig, duckdbCfg config.DuckDBConfig) *Pool {
 	p := &Pool{
-		sessions: make(map[string]*Session),
-		catalog:  catalog,
-		pgCfg:    pgCfg,
-		minioCfg: minioCfg,
-		poolCfg:  poolCfg,
+		sessions:   make(map[string]*Session),
+		catalog:    catalog,
+		pgCfg:      pgCfg,
+		minioCfg:   minioCfg,
+		poolCfg:    poolCfg,
+		duckdbCfg:  duckdbCfg,
 	}
 	go p.evictLoop()
 	return p
@@ -95,7 +97,12 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 		UsePathStyle: p.minioCfg.UsePathStyle,
 	}
 
-	conn, err := duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, sa.S3Prefix, sa.PGSchema)
+	var conn *duckdb.Conn
+	if p.duckdbCfg.Backend == duckdb.BackendDuckDB {
+		conn, err = duckdb.OpenForTenantPlain(ctx, tenantID, tenantMinioCfg, sa.S3Prefix)
+	} else {
+		conn, err = duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, sa.S3Prefix, sa.PGSchema)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open duckdb for tenant %q: %w", tenantID, err)
 	}
