@@ -84,11 +84,11 @@ func main() {
 	// Tenant provisioner
 	provisioner := tenant.NewProvisioner(
 		catalogDB, storageClient,
-		cfg.Postgres, cfg.MinIO, cfg.DuckLake, cfg.DuckDB,
+		cfg.Postgres, cfg.MinIO, cfg.DuckLake, cfg.Storage,
 	)
 
 	// Session pool – used by the admin query endpoint to execute SQL across tenants
-	sessionPool := pool.New(catalogDB, cfg.Postgres, cfg.MinIO, cfg.Pool, cfg.DuckDB)
+	sessionPool := pool.New(catalogDB, cfg.Postgres, cfg.MinIO, cfg.Pool, cfg.Storage)
 	defer sessionPool.Close()
 
 	// HTTP control plane server

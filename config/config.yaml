@@ -25,12 +25,12 @@ minio:
 ducklake:
   tenant_base_path: "tenants"
 
-# duckdb.backend selects the storage backend for tenant sessions.
+# storage.backend selects the storage backend for tenant sessions.
 # "ducklake" (default) – Postgres-backed DuckLake catalog; ACID, time travel,
 #   schema evolution. Requires the ducklake and postgres DuckDB extensions.
 # "duckdb" – plain DuckDB with direct MinIO/S3 access via httpfs; no Postgres
 #   metadata, broader DuckDB feature support, but no built-in ACID or time travel.
-duckdb:
+storage:
   backend: "ducklake"
 
 auth:

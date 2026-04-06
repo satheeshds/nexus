@@ -31,12 +31,12 @@ type RegisterResponse struct {
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
 type Provisioner struct {
-	db        *catalog.DB
-	store     *storage.Client
-	pgCfg     config.PostgresConfig
-	minioCfg  config.MinIOConfig
-	dlCfg     config.DuckLakeConfig
-	duckdbCfg config.DuckDBConfig
+	db         *catalog.DB
+	store      *storage.Client
+	pgCfg      config.PostgresConfig
+	minioCfg   config.MinIOConfig
+	dlCfg      config.DuckLakeConfig
+	storageCfg config.StorageConfig
 }
 
 func NewProvisioner(
@@ -45,15 +45,15 @@ func NewProvisioner(
 	pgCfg config.PostgresConfig,
 	minioCfg config.MinIOConfig,
 	dlCfg config.DuckLakeConfig,
-	duckdbCfg config.DuckDBConfig,
+	storageCfg config.StorageConfig,
 ) *Provisioner {
 	return &Provisioner{
-		db:        db,
-		store:     store,
-		pgCfg:     pgCfg,
-		minioCfg:  minioCfg,
-		dlCfg:     dlCfg,
-		duckdbCfg: duckdbCfg,
+		db:         db,
+		store:      store,
+		pgCfg:      pgCfg,
+		minioCfg:   minioCfg,
+		dlCfg:      dlCfg,
+		storageCfg: storageCfg,
 	}
 }
 
@@ -70,7 +70,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	s3Prefix := fmt.Sprintf("%s/%s", p.dlCfg.TenantBasePath, tenantID)
 	pgSchema := fmt.Sprintf("ducklake_%s", tenantID)
 
-	slog.Info("provisioning tenant", "tenant", tenantID, "backend", p.duckdbCfg.Backend)
+	slog.Info("provisioning tenant", "tenant", tenantID, "backend", p.storageCfg.Backend)
 
 	// Hash the customer's password.
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -80,7 +80,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 	// For the DuckLake backend a Postgres schema is required to store catalog
 	// metadata. Skip schema creation for the plain DuckDB backend.
-	if p.duckdbCfg.Backend != duckdb.BackendDuckDB {
+	if p.storageCfg.Backend != duckdb.BackendDuckDB {
 		// Step 1: Create Postgres schema for DuckLake metadata.
 		if err := p.db.CreateTenantSchema(ctx, pgSchema); err != nil {
 			return nil, fmt.Errorf("create schema: %w", err)
@@ -92,7 +92,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	// tenant-scoped credentials rather than the admin credentials.
 	minioCreds, err := p.store.ProvisionTenant(ctx, tenantID, s3Prefix)
 	if err != nil {
-		if p.duckdbCfg.Backend != duckdb.BackendDuckDB {
+		if p.storageCfg.Backend != duckdb.BackendDuckDB {
 			_ = p.db.DropTenantSchema(ctx, pgSchema)
 		}
 		return nil, fmt.Errorf("provision minio: %w", err)
@@ -110,7 +110,7 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 	}
 
 	// Step 3: Initialize DuckLake catalog (DuckLake backend only).
-	if p.duckdbCfg.Backend != duckdb.BackendDuckDB {
+	if p.storageCfg.Backend != duckdb.BackendDuckDB {
 		if err := p.initDuckLake(ctx, tenantID, tenantMinioCfg, s3Prefix, pgSchema); err != nil {
 			_ = p.store.DeprovisionTenant(ctx, minioAccessKey)
 			_ = p.db.DropTenantSchema(ctx, pgSchema)
@@ -215,7 +215,7 @@ func (p *Provisioner) Delete(ctx context.Context, tenantID string) error {
 		return fmt.Errorf("deprovision storage: %w", err)
 	}
 	// Drop DuckLake schema (cascade removes all metadata) only when using DuckLake backend.
-	if p.duckdbCfg.Backend != duckdb.BackendDuckDB {
+	if p.storageCfg.Backend != duckdb.BackendDuckDB {
 		if err := p.db.DropTenantSchema(ctx, t.PGSchema); err != nil {
 			return fmt.Errorf("drop schema: %w", err)
 		}

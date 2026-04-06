@@ -14,7 +14,7 @@ type Config struct {
 	Postgres PostgresConfig `mapstructure:"postgres"`
 	MinIO    MinIOConfig    `mapstructure:"minio"`
 	DuckLake DuckLakeConfig `mapstructure:"ducklake"`
-	DuckDB   DuckDBConfig   `mapstructure:"duckdb"`
+	Storage  StorageConfig  `mapstructure:"storage"`
 	Auth     AuthConfig     `mapstructure:"auth"`
 	Pool     PoolConfig     `mapstructure:"pool"`
 }
@@ -66,8 +66,8 @@ type DuckLakeConfig struct {
 	TenantBasePath string `mapstructure:"tenant_base_path"`
 }
 
-// DuckDBConfig controls which DuckDB backend is used for tenant sessions.
-type DuckDBConfig struct {
+// StorageConfig controls which DuckDB backend is used for tenant sessions.
+type StorageConfig struct {
 	// Backend selects the storage backend for DuckDB sessions.
 	// "ducklake" (default) – attaches a DuckLake catalog stored in Postgres;
 	//   provides ACID transactions, schema evolution, and time travel.
@@ -77,13 +77,13 @@ type DuckDBConfig struct {
 	Backend string `mapstructure:"backend"`
 }
 
-// Validate returns an error if the DuckDBConfig contains an unsupported value.
-func (d DuckDBConfig) Validate() error {
-	switch d.Backend {
+// Validate returns an error if the StorageConfig contains an unsupported value.
+func (s StorageConfig) Validate() error {
+	switch s.Backend {
 	case "", "ducklake", "duckdb":
 		return nil
 	default:
-		return fmt.Errorf("invalid duckdb.backend %q: must be %q or %q", d.Backend, "ducklake", "duckdb")
+		return fmt.Errorf("invalid storage.backend %q: must be %q or %q", s.Backend, "ducklake", "duckdb")
 	}
 }
 
@@ -123,7 +123,7 @@ func Load() (*Config, error) {
 	v.SetDefault("minio.use_ssl", false)
 	v.SetDefault("minio.use_path_style", true)
 	v.SetDefault("ducklake.tenant_base_path", "tenants")
-	v.SetDefault("duckdb.backend", "ducklake")
+	v.SetDefault("storage.backend", "ducklake")
 	v.SetDefault("auth.jwt_secret", "supersecretkey_change_in_production")
 	v.SetDefault("auth.token_duration", "24h")
 	v.SetDefault("pool.max_idle_sessions", 1)
@@ -152,7 +152,7 @@ func Load() (*Config, error) {
 	v.BindEnv("minio.access_key", "NEXUS_MINIO_ACCESS_KEY")
 	v.BindEnv("minio.secret_key", "NEXUS_MINIO_SECRET_KEY")
 	v.BindEnv("minio.bucket", "NEXUS_MINIO_BUCKET")
-	v.BindEnv("duckdb.backend", "NEXUS_DUCKDB_BACKEND")
+	v.BindEnv("storage.backend", "NEXUS_STORAGE_BACKEND")
 	v.BindEnv("auth.jwt_secret", "NEXUS_AUTH_JWT_SECRET")
 	v.BindEnv("auth.admin_api_key", "NEXUS_AUTH_ADMIN_API_KEY")
 
@@ -160,7 +160,7 @@ func Load() (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
-	if err := cfg.DuckDB.Validate(); err != nil {
+	if err := cfg.Storage.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil

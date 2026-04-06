@@ -1,8 +1,8 @@
 # Plain DuckDB Backend
 
 Nexus supports two DuckDB-based storage backends for tenant sessions. The
-backend is selected globally via the `duckdb.backend` configuration key
-(or `NEXUS_DUCKDB_BACKEND` environment variable).
+backend is selected globally via the `storage.backend` configuration key
+(or `NEXUS_STORAGE_BACKEND` environment variable).
 
 ---
 
@@ -69,14 +69,14 @@ Choose the `duckdb` backend when you need:
 ### `config/config.yaml`
 
 ```yaml
-duckdb:
+storage:
   backend: "duckdb"   # "ducklake" (default) or "duckdb"
 ```
 
 ### Environment variable
 
 ```bash
-NEXUS_DUCKDB_BACKEND=duckdb
+NEXUS_STORAGE_BACKEND=duckdb
 ```
 
 ---
@@ -110,7 +110,7 @@ pre-loaded via the `httpfs` extension. Key points:
 
 ## Tenant Provisioning Differences
 
-When `duckdb.backend = "duckdb"`:
+When `storage.backend = "duckdb"`:
 
 - The Postgres schema (`ducklake_<tenant_id>`) is **not created** during
   registration, since it is only needed to store DuckLake catalog metadata.

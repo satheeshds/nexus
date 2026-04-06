@@ -31,17 +31,17 @@ type Pool struct {
 	pgCfg      config.PostgresConfig
 	minioCfg   config.MinIOConfig
 	poolCfg    config.PoolConfig
-	duckdbCfg  config.DuckDBConfig
+	storageCfg config.StorageConfig
 }
 
-func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig, duckdbCfg config.DuckDBConfig) *Pool {
+func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig, storageCfg config.StorageConfig) *Pool {
 	p := &Pool{
 		sessions:   make(map[string]*Session),
 		catalog:    catalog,
 		pgCfg:      pgCfg,
 		minioCfg:   minioCfg,
 		poolCfg:    poolCfg,
-		duckdbCfg:  duckdbCfg,
+		storageCfg: storageCfg,
 	}
 	go p.evictLoop()
 	return p
@@ -98,7 +98,7 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	}
 
 	var conn *duckdb.Conn
-	if p.duckdbCfg.Backend == duckdb.BackendDuckDB {
+	if p.storageCfg.Backend == duckdb.BackendDuckDB {
 		conn, err = duckdb.OpenForTenantPlain(ctx, tenantID, tenantMinioCfg, sa.S3Prefix)
 	} else {
 		conn, err = duckdb.OpenForTenant(ctx, tenantID, p.pgCfg, tenantMinioCfg, sa.S3Prefix, sa.PGSchema)
