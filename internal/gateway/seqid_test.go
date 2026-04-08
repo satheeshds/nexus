@@ -1,203 +1,231 @@
 package gateway
 
 import (
-	"testing"
+"testing"
 )
 
-// ── columnListContainsID ──────────────────────────────────────────────────────
+// ── columnListContains ────────────────────────────────────────────────────────
 
-func TestColumnListContainsID(t *testing.T) {
-	cases := []struct {
-		colList string
-		want    bool
-	}{
-		{"id, name, age", true},
-		{"name, id, age", true},
-		{"name, age, id", true},
-		{"ID, name", true},        // case-insensitive
-		{`"id", name`, true},      // double-quoted
-		{"name, age", false},      // no id
-		{"identifier, name", false}, // 'identifier' is not 'id'
-		{"tid, name", false},      // 'tid' is not 'id'
-		{"", false},               // empty
-	}
+func TestColumnListContains(t *testing.T) {
+cases := []struct {
+colList string
+colName string
+want    bool
+}{
+// id checks
+{"id, name, age", "id", true},
+{"name, id, age", "id", true},
+{"name, age, id", "id", true},
+{"ID, name", "id", true},          // case-insensitive
+{`"id", name`, "id", true},        // double-quoted
+{"name, age", "id", false},        // no id
+{"identifier, name", "id", false}, // 'identifier' is not 'id'
+{"tid, name", "id", false},        // 'tid' is not 'id'
+{"", "id", false},                 // empty
 
-	for _, tc := range cases {
-		got := columnListContainsID(tc.colList)
-		if got != tc.want {
-			t.Errorf("columnListContainsID(%q) = %v; want %v", tc.colList, got, tc.want)
-		}
-	}
+// created_at checks
+{"name, created_at", "created_at", true},
+{"CREATED_AT, name", "created_at", true}, // case-insensitive
+{"name, age", "created_at", false},
+
+// updated_at checks
+{"name, updated_at", "updated_at", true},
+{"name, age", "updated_at", false},
+}
+
+for _, tc := range cases {
+got := columnListContains(tc.colList, tc.colName)
+if got != tc.want {
+t.Errorf("columnListContains(%q, %q) = %v; want %v", tc.colList, tc.colName, got, tc.want)
+}
+}
 }
 
 // ── splitTableName ────────────────────────────────────────────────────────────
 
 func TestSplitTableName(t *testing.T) {
-	cases := []struct {
-		input        string
-		wantSchema   string
-		wantTable    string
-	}{
-		{"tablename", "lake", "tablename"},
-		{"lake.tablename", "lake", "tablename"},
-		{"myschema.mytable", "myschema", "mytable"},
-		{`"tablename"`, "lake", "tablename"},
-		{`"lake"."tablename"`, "lake", "tablename"},
-		{`"myschema"."mytable"`, "myschema", "mytable"},
-	}
+cases := []struct {
+input      string
+wantSchema string
+wantTable  string
+}{
+{"tablename", "lake", "tablename"},
+{"lake.tablename", "lake", "tablename"},
+{"myschema.mytable", "myschema", "mytable"},
+{`"tablename"`, "lake", "tablename"},
+{`"lake"."tablename"`, "lake", "tablename"},
+{`"myschema"."mytable"`, "myschema", "mytable"},
+}
 
-	for _, tc := range cases {
-		gotSchema, gotTable := splitTableName(tc.input)
-		if gotSchema != tc.wantSchema || gotTable != tc.wantTable {
-			t.Errorf("splitTableName(%q) = (%q, %q); want (%q, %q)",
-				tc.input, gotSchema, gotTable, tc.wantSchema, tc.wantTable)
-		}
-	}
+for _, tc := range cases {
+gotSchema, gotTable := splitTableName(tc.input)
+if gotSchema != tc.wantSchema || gotTable != tc.wantTable {
+t.Errorf("splitTableName(%q) = (%q, %q); want (%q, %q)",
+tc.input, gotSchema, gotTable, tc.wantSchema, tc.wantTable)
+}
+}
 }
 
 // ── splitValueRows ────────────────────────────────────────────────────────────
 
 func TestSplitValueRows(t *testing.T) {
-	cases := []struct {
-		input    string
-		wantRows []string
-	}{
-		{
-			"(1, 2)",
-			[]string{"(1, 2)"},
-		},
-		{
-			"(1, 2), (3, 4)",
-			[]string{"(1, 2)", "(3, 4)"},
-		},
-		{
-			"(1, 'hello'), (2, 'world')",
-			[]string{"(1, 'hello')", "(2, 'world')"},
-		},
-		{
-			// Single-quoted value with comma
-			"(1, 'hello, world')",
-			[]string{"(1, 'hello, world')"},
-		},
-		{
-			// Escaped single-quote inside string
-			"(1, 'it''s fine')",
-			[]string{"(1, 'it''s fine')"},
-		},
-		{
-			// Nested function call
-			"(func(1, 2), 3)",
-			[]string{"(func(1, 2), 3)"},
-		},
-		{
-			// Three rows
-			"(1, 'a'), (2, 'b'), (3, 'c')",
-			[]string{"(1, 'a')", "(2, 'b')", "(3, 'c')"},
-		},
-	}
-
-	for _, tc := range cases {
-		got := splitValueRows(tc.input)
-		if len(got) != len(tc.wantRows) {
-			t.Errorf("splitValueRows(%q): got %d rows, want %d: %v",
-				tc.input, len(got), len(tc.wantRows), got)
-			continue
-		}
-		for i, row := range got {
-			if row != tc.wantRows[i] {
-				t.Errorf("splitValueRows(%q)[%d] = %q; want %q",
-					tc.input, i, row, tc.wantRows[i])
-			}
-		}
-	}
+cases := []struct {
+input    string
+wantRows []string
+}{
+{
+"(1, 2)",
+[]string{"(1, 2)"},
+},
+{
+"(1, 2), (3, 4)",
+[]string{"(1, 2)", "(3, 4)"},
+},
+{
+"(1, 'hello'), (2, 'world')",
+[]string{"(1, 'hello')", "(2, 'world')"},
+},
+{
+// Single-quoted value with comma
+"(1, 'hello, world')",
+[]string{"(1, 'hello, world')"},
+},
+{
+// Escaped single-quote inside string
+"(1, 'it''s fine')",
+[]string{"(1, 'it''s fine')"},
+},
+{
+// Nested function call
+"(func(1, 2), 3)",
+[]string{"(func(1, 2), 3)"},
+},
+{
+// Three rows
+"(1, 'a'), (2, 'b'), (3, 'c')",
+[]string{"(1, 'a')", "(2, 'b')", "(3, 'c')"},
+},
 }
 
-// ── injectIDIntoRow ───────────────────────────────────────────────────────────
+for _, tc := range cases {
+got := splitValueRows(tc.input)
+if len(got) != len(tc.wantRows) {
+t.Errorf("splitValueRows(%q): got %d rows, want %d: %v",
+tc.input, len(got), len(tc.wantRows), got)
+continue
+}
+for i, row := range got {
+if row != tc.wantRows[i] {
+t.Errorf("splitValueRows(%q)[%d] = %q; want %q",
+tc.input, i, row, tc.wantRows[i])
+}
+}
+}
+}
 
-func TestInjectIDIntoRow(t *testing.T) {
-	cases := []struct {
-		row  string
-		id   int64
-		want string
-	}{
-		{"(1, 2)", 5, "(5, 1, 2)"},
-		{"('hello', 'world')", 10, "(10, 'hello', 'world')"},
-		{"()", 3, "(3)"},
-	}
+// ── injectValsIntoRow ─────────────────────────────────────────────────────────
 
-	for _, tc := range cases {
-		got := injectIDIntoRow(tc.row, tc.id)
-		if got != tc.want {
-			t.Errorf("injectIDIntoRow(%q, %d) = %q; want %q", tc.row, tc.id, got, tc.want)
-		}
-	}
+func TestInjectValsIntoRow(t *testing.T) {
+cases := []struct {
+row     string
+prepend []string
+append  []string
+want    string
+}{
+// id only
+{"(1, 2)", []string{"5"}, nil, "(5, 1, 2)"},
+// timestamps only
+{"('hello')", nil, []string{"NOW()", "NOW()"}, "('hello', NOW(), NOW())"},
+// id + timestamps
+{"('alice')", []string{"7"}, []string{"NOW()", "NOW()"}, "(7, 'alice', NOW(), NOW())"},
+// empty row
+{"()", []string{"3"}, nil, "(3)"},
+// empty row with timestamps
+{"()", nil, []string{"NOW()"}, "(NOW())"},
+}
+
+for _, tc := range cases {
+got := injectValsIntoRow(tc.row, tc.prepend, tc.append)
+if got != tc.want {
+t.Errorf("injectValsIntoRow(%q, %v, %v) = %q; want %q",
+tc.row, tc.prepend, tc.append, got, tc.want)
+}
+}
 }
 
 // ── insertRE (regex matching) ─────────────────────────────────────────────────
 
 func TestInsertREMatch(t *testing.T) {
-	matching := []string{
-		"INSERT INTO t (name) VALUES ('hello')",
-		"insert into t (name) VALUES ('hello')",
-		"INSERT INTO lake.orders (product, qty) VALUES ('widget', 5)",
-		"INSERT INTO t (a, b) VALUES (1, 2), (3, 4)",
-		"  INSERT  INTO  t  (a)  VALUES  (1)  ",
-	}
+matching := []string{
+"INSERT INTO t (name) VALUES ('hello')",
+"insert into t (name) VALUES ('hello')",
+"INSERT INTO lake.orders (product, qty) VALUES ('widget', 5)",
+"INSERT INTO t (a, b) VALUES (1, 2), (3, 4)",
+"  INSERT  INTO  t  (a)  VALUES  (1)  ",
+}
 
-	for _, q := range matching {
-		if !insertRE.MatchString(q) {
-			t.Errorf("insertRE should match %q but did not", q)
-		}
-	}
+for _, q := range matching {
+if !insertRE.MatchString(q) {
+t.Errorf("insertRE should match %q but did not", q)
+}
+}
 
-	nonMatching := []string{
-		"SELECT * FROM t",
-		"UPDATE t SET a = 1",
-		"DELETE FROM t",
-		"INSERT INTO t VALUES (1, 2)",   // no explicit column list
-		"INSERT INTO t (a) SELECT 1",    // SELECT form
-	}
+nonMatching := []string{
+"SELECT * FROM t",
+"UPDATE t SET a = 1",
+"DELETE FROM t",
+"INSERT INTO t VALUES (1, 2)",  // no explicit column list
+"INSERT INTO t (a) SELECT 1",   // SELECT form
+}
 
-	for _, q := range nonMatching {
-		if insertRE.MatchString(q) {
-			t.Errorf("insertRE should NOT match %q but did", q)
-		}
-	}
+for _, q := range nonMatching {
+if insertRE.MatchString(q) {
+t.Errorf("insertRE should NOT match %q but did", q)
+}
+}
 }
 
 // ── escapeSQLString ───────────────────────────────────────────────────────────
 
 func TestEscapeSQLString(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-	}{
-		{"normal", "normal"},
-		{"it's", "it''s"},
-		{"a'b'c", "a''b''c"},
-		{"", ""},
-	}
-
-	for _, tc := range cases {
-		got := escapeSQLString(tc.input)
-		if got != tc.want {
-			t.Errorf("escapeSQLString(%q) = %q; want %q", tc.input, got, tc.want)
-		}
-	}
+cases := []struct {
+input string
+want  string
+}{
+{"normal", "normal"},
+{"it's", "it''s"},
+{"a'b'c", "a''b''c"},
+{"", ""},
 }
 
-// ── end-to-end rewrite (without a real DB connection) ────────────────────────
-// These tests verify the full rewrite path using a non-nil but nil-valued
-// *duckdb.Conn. Since the table has no 'id' column check possible without a
-// real DB, we use a pre-populated tableIDCache to simulate the cache hit.
+for _, tc := range cases {
+got := escapeSQLString(tc.input)
+if got != tc.want {
+t.Errorf("escapeSQLString(%q) = %q; want %q", tc.input, got, tc.want)
+}
+}
+}
 
-func TestRewriteInsertForSequentialID_CacheHit(t *testing.T) {
-	// We can't call rewriteInsertForSequentialID without a real DB connection
-	// for the getNextSequentialID step. The tests below focus on the parts
-	// that don't require a live connection (already covered above).
-	//
-	// Integration-level coverage of the full path is handled by
-	// TestInsertSequentialID_Integration (seqid_integration_test.go) when the
-	// -tags integration build tag is used.
-	t.Skip("full rewrite requires a live DuckDB connection; see integration tests")
+// ── buildTypeList ─────────────────────────────────────────────────────────────
+
+func TestBuildTypeList(t *testing.T) {
+got := buildTypeList([]string{"TIMESTAMP", "TIMESTAMPTZ"})
+want := "'TIMESTAMP', 'TIMESTAMPTZ'"
+if got != want {
+t.Errorf("buildTypeList = %q; want %q", got, want)
+}
+
+// Empty slice
+if buildTypeList(nil) != "" {
+t.Errorf("buildTypeList(nil) should return empty string")
+}
+}
+
+// ── integration test note ─────────────────────────────────────────────────────
+
+func TestRewriteInsertDefaults_RequiresDB(t *testing.T) {
+// Full end-to-end rewrite requires a live DuckDB connection for both the
+// information_schema lookup and the COALESCE(MAX(id),0)+1 query.
+// See internal/gateway/seqid_integration_test.go (build tag: integration).
+t.Skip("full rewrite requires a live DuckDB connection; see integration tests")
 }
