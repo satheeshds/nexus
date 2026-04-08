@@ -226,6 +226,6 @@ t.Errorf("buildTypeList(nil) should return empty string")
 func TestRewriteInsertDefaults_RequiresDB(t *testing.T) {
 // Full end-to-end rewrite requires a live DuckDB connection for both the
 // information_schema lookup and the COALESCE(MAX(id),0)+1 query.
-// See internal/gateway/seqid_integration_test.go (build tag: integration).
+// This coverage belongs in integration-tagged tests.
 t.Skip("full rewrite requires a live DuckDB connection; see integration tests")
 }
