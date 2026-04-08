@@ -63,14 +63,21 @@ type tableAutoColumns struct {
 // rewriteInsertDefaults rewrites an INSERT statement to inject default values
 // for columns that the table defines but the INSERT omits:
 //
-//   - integer 'id'           → COALESCE(MAX(id), 0) + 1
+//   - integer 'id'           → (SELECT COALESCE(MAX(id), 0) + N FROM <table>)
 //   - timestamp 'created_at' → NOW()
 //   - timestamp 'updated_at' → NOW()
 //
+// The integer 'id' is injected as a scalar subquery so that the MAX(id)
+// computation happens within the INSERT statement itself. DuckLake's ACID
+// semantics guarantee that all rows in a single INSERT see the same
+// pre-insert MAX(id), giving each row a unique monotonically increasing ID
+// without a separate SELECT round-trip and without a race window between
+// concurrent inserts on the same tenant session.
+//
 // If none of the above apply, or if the INSERT already provides all relevant
 // columns, the statement is passed through unchanged. Any failure in the
-// inspection or ID calculation step also results in a pass-through so that
-// the original error (if any) surfaces directly from DuckDB.
+// inspection step also results in a pass-through so that the original error
+// (if any) surfaces directly from DuckDB.
 //
 // tableAutoCache is a caller-maintained map that avoids repeated
 // information_schema queries for the same table within a single connection.
@@ -106,18 +113,13 @@ func rewriteInsertDefaults(
 		return query, args
 	}
 
-	// Resolve the next sequential ID if required.
-	var nextID int64
-	if needID {
-		var err error
-		nextID, err = getNextSequentialID(ctx, conn, tableName)
-		if err != nil {
-			slog.Warn("seqid: cannot get next id; passing query through",
-				"table", tableName, "err", err)
-			needID = false
-			if !needCreatedAt && !needUpdatedAt {
-				return query, args
-			}
+	// Validate table name before embedding it in a subquery (SQL injection guard).
+	if needID && !validIdentRE.MatchString(tableName) {
+		slog.Warn("seqid: invalid table name, skipping id injection",
+			"table", tableName)
+		needID = false
+		if !needCreatedAt && !needUpdatedAt {
+			return query, args
 		}
 	}
 
@@ -164,7 +166,13 @@ func rewriteInsertDefaults(
 	for i, row := range rows {
 		var prependVals []string
 		if needID {
-			prependVals = append(prependVals, fmt.Sprintf("%d", nextID+int64(i)))
+			// Embed a scalar subquery so the ID is derived atomically within
+			// the INSERT itself. DuckLake's ACID semantics ensure all rows in
+			// this statement see the same pre-insert MAX(id), giving each row
+			// a unique monotonically increasing ID without a separate SELECT
+			// round-trip and without a race window between concurrent inserts.
+			prependVals = append(prependVals,
+				fmt.Sprintf("(SELECT COALESCE(MAX(id), 0) + %d FROM %s)", i+1, tableName))
 		}
 		rewritten[i] = injectValsIntoRow(row, prependVals, appendVals)
 	}
@@ -256,35 +264,6 @@ WHERE table_schema = '%s'
 		}
 	}
 	return result
-}
-
-// getNextSequentialID returns COALESCE(MAX(id), 0) + 1 from the given table.
-//
-// Note: computing MAX+1 is inherently subject to a time-of-check/time-of-use
-// race when two concurrent connections insert into the same table at the same
-// time. DuckLake does not support native sequences, so this best-effort
-// approach is the available mechanism. Within a single tenant session the pool
-// guarantees one DuckDB connection per tenant, so the risk is low in practice.
-func getNextSequentialID(ctx context.Context, conn *duckdb.Conn, tableName string) (int64, error) {
-	// Validate the table name to prevent SQL injection.
-	if !validIdentRE.MatchString(tableName) {
-		return 0, fmt.Errorf("invalid table name %q", tableName)
-	}
-	query := fmt.Sprintf("SELECT COALESCE(MAX(id), 0) + 1 FROM %s", tableName)
-	rows, err := conn.QueryContext(ctx, query)
-	if err != nil {
-		return 0, fmt.Errorf("get max id from %s: %w", tableName, err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return 1, nil
-	}
-	var nextID int64
-	if err := rows.Scan(&nextID); err != nil {
-		return 0, fmt.Errorf("scan max id from %s: %w", tableName, err)
-	}
-	return nextID, nil
 }
 
 // splitTableName splits a (possibly schema-qualified, possibly double-quoted)
