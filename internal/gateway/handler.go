@@ -23,15 +23,17 @@ type portal struct {
 
 // handler runs the query loop for a single client connection.
 type handler struct {
-	backend    *pgproto3.Backend
-	session    *pool.Session
-	statements map[string]statement // statement name -> SQL and param count
-	portals    map[string]portal    // portal name -> SQL and params
+	backend      *pgproto3.Backend
+	session      *pool.Session
+	statements   map[string]statement // statement name -> SQL and param count
+	portals      map[string]portal    // portal name -> SQL and params
+	tableIDCache map[string]bool      // table name -> has integer 'id' column (seqid cache)
 }
 
 func (h *handler) run(ctx context.Context) {
 	h.statements = make(map[string]statement)
 	h.portals = make(map[string]portal)
+	h.tableIDCache = make(map[string]bool)
 
 	for {
 		msg, err := h.backend.Receive()
@@ -173,6 +175,10 @@ func (h *handler) handleExecute(ctx context.Context, query string, params []any)
 }
 
 func (h *handler) executeSQL(ctx context.Context, query string, args []any, sendRowDesc bool, sendReady bool) {
+	// Rewrite INSERT statements to inject a sequential 'id' when the target
+	// table has an integer id column and no id value was provided.
+	query, args = rewriteInsertForSequentialID(ctx, h.session.Conn, query, args, h.tableIDCache)
+
 	actualParams := guessParamCount(query)
 	if len(args) > actualParams {
 		args = args[:actualParams]
