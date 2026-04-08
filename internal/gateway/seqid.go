@@ -169,9 +169,22 @@ prependVals = append(prependVals, fmt.Sprintf("%d", nextID+int64(i)))
 rewritten[i] = injectValsIntoRow(row, prependVals, appendVals)
 }
 
-newQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s",
-tableName, newColList, strings.Join(rewritten, ", "))
+// Preserve any original suffix after the last VALUES row, such as
+// RETURNING, ON CONFLICT, a trailing semicolon, or additional statements.
+// If we cannot locate the final original row reliably, fall back to the
+// original query rather than risk silently changing semantics.
+lastRow := rows[len(rows)-1]
+lastRowIdx := strings.LastIndex(query, lastRow)
+if lastRowIdx < 0 {
+slog.Debug("seqid: unable to preserve trailing SQL, skipping rewrite",
+"table", tableName,
+)
+return query, args
+}
+suffix := query[lastRowIdx+len(lastRow):]
 
+newQuery := fmt.Sprintf("INSERT INTO %s (%s) VALUES %s%s",
+tableName, newColList, strings.Join(rewritten, ", "), suffix)
 slog.Debug("seqid: injected defaults",
 "table", tableName,
 "id", needID,
