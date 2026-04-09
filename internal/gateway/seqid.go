@@ -231,9 +231,13 @@ func queryTableAutoColumns(ctx context.Context, conn *duckdb.Conn, tableName str
 	intTypes := buildTypeList(integerDataTypes)
 	tsTypes := buildTypeList(timestampDataTypes)
 
+	// Use the catalog-qualified information_schema path so that DuckLake tables
+	// (which live in the 'lake' catalog, not the default in-memory catalog) are
+	// visible.  Without the catalog prefix, DuckDB resolves information_schema
+	// to the in-memory catalog, which has no user tables.
 	query := fmt.Sprintf(`
 SELECT column_name, upper(data_type)
-FROM information_schema.columns
+FROM %s.information_schema.columns
 WHERE table_schema = '%s'
   AND table_name   = '%s'
   AND (
@@ -241,6 +245,7 @@ WHERE table_schema = '%s'
      OR (column_name = 'created_at' AND upper(data_type) IN (%s))
      OR (column_name = 'updated_at' AND upper(data_type) IN (%s))
   )`,
+		escapeSQLString(schema),
 		escapeSQLString(schema),
 		escapeSQLString(table),
 		intTypes,
