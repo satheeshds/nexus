@@ -235,18 +235,23 @@ func queryTableAutoColumns(ctx context.Context, conn *duckdb.Conn, tableName str
 	// so we query the session-level information_schema.columns (which reflects
 	// the current catalog when search_path = 'lake') and filter by
 	// table_catalog = 'lake' to ensure we never match in-memory tables.
+	//
+	// We intentionally omit a table_schema filter: when the client writes
+	// "lake.accounts", splitTableName returns schema="lake", but DuckLake
+	// tables are stored in schema "main" within the attached "lake" catalog.
+	// Filtering by table_catalog + table_name is specific enough in practice
+	// because DuckLake only exposes one schema per catalog.
+	_ = schema // schema is unused; kept so splitTableName can be extended later
 	query := fmt.Sprintf(`
 SELECT column_name, upper(data_type)
 FROM information_schema.columns
 WHERE table_catalog = 'lake'
-  AND table_schema = '%s'
   AND table_name   = '%s'
   AND (
         (column_name = 'id'         AND upper(data_type) IN (%s))
      OR (column_name = 'created_at' AND upper(data_type) IN (%s))
      OR (column_name = 'updated_at' AND upper(data_type) IN (%s))
   )`,
-		escapeSQLString(schema),
 		escapeSQLString(table),
 		intTypes,
 		tsTypes,
