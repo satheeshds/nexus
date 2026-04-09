@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/satheeshds/nexus/internal/duckdb"
 )
@@ -445,6 +444,11 @@ func replaceIDSubqueries(query, tableName string, ids []int64) string {
 // numRows pre-computed sequential ids starting at MAX(id)+1.
 // On failure it returns nil and logs a warning; callers must handle nil.
 func precomputeInsertIDs(ctx context.Context, conn *duckdb.Conn, tableName string, numRows int) []int64 {
+	// Validate before embedding in SQL (SQL injection guard).
+	if !validIdentRE.MatchString(tableName) {
+		slog.Warn("seqid: invalid table name in precomputeInsertIDs, skipping", "table", tableName)
+		return nil
+	}
 	rows, err := conn.QueryContext(ctx,
 		fmt.Sprintf("SELECT COALESCE(MAX(id), 0) FROM %s", tableName))
 	if err != nil {
@@ -464,10 +468,4 @@ func precomputeInsertIDs(ctx context.Context, conn *duckdb.Conn, tableName strin
 		ids[i] = base + int64(i+1)
 	}
 	return ids
-}
-
-// nowString returns the current UTC time formatted as a Postgres-compatible
-// timestamp string.
-func nowString() string {
-	return time.Now().UTC().Format("2006-01-02 15:04:05.999999")
 }

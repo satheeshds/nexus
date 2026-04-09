@@ -300,14 +300,14 @@ func returningColOID(col string) uint32 {
 }
 
 // executeInsertReturning handles INSERT … RETURNING by:
-//  1. Pre-computing the sequential id value(s) so they can be returned.
-//  2. Replacing the injected scalar subquery(ies) with the literal id(s).
-//  3. Executing the plain INSERT (without RETURNING).
-//  4. Emitting synthetic DataRow(s) for the RETURNING columns.
+//  1. Acquiring the per-session insert mutex to prevent concurrent ID races.
+//  2. Pre-computing the sequential id value(s) so they can be returned.
+//  3. Replacing the injected scalar subquery(ies) with the literal id(s).
+//  4. Executing the plain INSERT (without RETURNING).
+//  5. Emitting synthetic DataRow(s) for the RETURNING columns.
 //
 // Supported RETURNING columns:
-//   - id         → the pre-computed sequential id
-//   - created_at / updated_at → current UTC timestamp (matching injected NOW())
+//   - id → the pre-computed sequential id (only when the rewriter auto-injected it)
 //   - any other column → NULL (safe default; most ORMs only need id)
 func (h *handler) executeInsertReturning(
 	ctx context.Context,
@@ -343,6 +343,29 @@ func (h *handler) executeInsertReturning(
 			break
 		}
 	}
+
+	// Only synthesise id when the rewriter actually auto-injected the scalar
+	// subquery.  If the client supplied id explicitly the subquery is absent
+	// and we cannot emulate RETURNING id safely.
+	if needsIDReturn && !idSubqueryRE(tableName).MatchString(baseQuery) {
+		slog.Warn("seqid: RETURNING id requested but id was not auto-injected",
+			"tenant", h.session.TenantID, "table", tableName)
+		_ = h.backend.Send(&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     "0A000",
+			Message:  "RETURNING id is only supported when id is auto-generated (omit id from the INSERT column list)",
+		})
+		if sendReady {
+			_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		}
+		return
+	}
+
+	// Acquire the per-session mutex to serialise the MAX(id) query + INSERT.
+	// This prevents two concurrent clients for the same tenant from computing
+	// the same base id and inserting duplicate values.
+	h.session.InsertMu.Lock()
+	defer h.session.InsertMu.Unlock()
 
 	// Pre-compute sequential ids (one SELECT round-trip).
 	var ids []int64
@@ -403,9 +426,6 @@ func (h *handler) executeInsertReturning(
 	}
 	dbRows.Close()
 
-	// Capture a single NOW() string for all timestamp columns in this batch.
-	tsValue := nowString()
-
 	// Send RowDescription (only for simple-query protocol; extended uses Describe).
 	if sendRowDesc {
 		fields := make([]pgproto3.FieldDescription, len(returningCols))
@@ -422,19 +442,14 @@ func (h *handler) executeInsertReturning(
 	}
 
 	// Emit one DataRow per inserted row.
+	// Only 'id' is supported in RETURNING; all other columns return NULL.
 	for rowIdx := 0; rowIdx < numRows; rowIdx++ {
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(returningCols))}
 		for colIdx, col := range returningCols {
-			switch col {
-			case "id":
-				if rowIdx < len(ids) {
-					dataRow.Values[colIdx] = []byte(fmt.Sprintf("%d", ids[rowIdx]))
-				}
-			case "created_at", "updated_at":
-				dataRow.Values[colIdx] = []byte(tsValue)
-			default:
-				dataRow.Values[colIdx] = nil
+			if col == "id" && rowIdx < len(ids) {
+				dataRow.Values[colIdx] = []byte(fmt.Sprintf("%d", ids[rowIdx]))
 			}
+			// all other columns → nil (NULL)
 		}
 		_ = h.backend.Send(&dataRow)
 	}
