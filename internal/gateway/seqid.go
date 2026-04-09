@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/satheeshds/nexus/internal/duckdb"
 )
@@ -372,4 +373,90 @@ func buildTypeList(types []string) string {
 // single-quoted SQL literal by doubling any contained single quotes.
 func escapeSQLString(s string) string {
 	return strings.ReplaceAll(s, "'", "''")
+}
+
+// returningRE matches a trailing RETURNING clause at the end of a statement.
+// Group 1: the column list following the RETURNING keyword.
+var returningRE = regexp.MustCompile(`(?is)\s+RETURNING\s+(.+?)\s*;?\s*$`)
+
+// stripReturningClause removes a trailing RETURNING clause from query and
+// returns the base query (without RETURNING) together with a lower-cased list
+// of the column names specified in RETURNING.  If no RETURNING clause is
+// present, the original query and nil are returned.
+func stripReturningClause(query string) (string, []string) {
+	loc := returningRE.FindStringSubmatchIndex(query)
+	if loc == nil {
+		return query, nil
+	}
+	colsRaw := query[loc[2]:loc[3]]
+	var cols []string
+	for _, c := range strings.Split(colsRaw, ",") {
+		c = strings.TrimSpace(c)
+		c = strings.Trim(c, `"`)
+		if c != "" {
+			cols = append(cols, strings.ToLower(c))
+		}
+	}
+	return query[:loc[0]], cols
+}
+
+// idSubqueryRE builds a compiled regexp that matches the scalar id subquery
+// injected by rewriteInsertDefaults for the given table name.
+// The subquery looks like: (SELECT COALESCE(MAX(id), 0) + 3 FROM lake.orders)
+//
+// NOTE: this pattern is intentionally tied to the format produced by
+// rewriteInsertDefaults (see the fmt.Sprintf on line ~175 of seqid.go).
+// If that format changes, update this pattern accordingly.
+func idSubqueryRE(tableName string) *regexp.Regexp {
+	return regexp.MustCompile(
+		`\(SELECT COALESCE\(MAX\(id\), 0\) \+ \d+ FROM ` + regexp.QuoteMeta(tableName) + `\)`,
+	)
+}
+
+// replaceIDSubqueries replaces the scalar id subqueries that were injected by
+// rewriteInsertDefaults with the pre-computed literal integer values in ids.
+// ids[0] is the id for the first row, ids[1] for the second, and so on.
+// Replacements are applied in the order the subqueries appear in the query.
+func replaceIDSubqueries(query, tableName string, ids []int64) string {
+	re := idSubqueryRE(tableName)
+	idx := 0
+	return re.ReplaceAllStringFunc(query, func(_ string) string {
+		if idx < len(ids) {
+			v := ids[idx]
+			idx++
+			return fmt.Sprintf("%d", v)
+		}
+		return "NULL"
+	})
+}
+
+// precomputeInsertIDs fetches the current MAX(id) from tableName and returns
+// numRows pre-computed sequential ids starting at MAX(id)+1.
+// On failure it returns nil and logs a warning; callers must handle nil.
+func precomputeInsertIDs(ctx context.Context, conn *duckdb.Conn, tableName string, numRows int) []int64 {
+	rows, err := conn.QueryContext(ctx,
+		fmt.Sprintf("SELECT COALESCE(MAX(id), 0) FROM %s", tableName))
+	if err != nil {
+		slog.Warn("seqid: failed to pre-compute ids", "table", tableName, "err", err)
+		return nil
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil
+	}
+	var base int64
+	if err := rows.Scan(&base); err != nil {
+		return nil
+	}
+	ids := make([]int64, numRows)
+	for i := range ids {
+		ids[i] = base + int64(i+1)
+	}
+	return ids
+}
+
+// nowString returns the current UTC time formatted as a Postgres-compatible
+// timestamp string.
+func nowString() string {
+	return time.Now().UTC().Format("2006-01-02 15:04:05.999999")
 }

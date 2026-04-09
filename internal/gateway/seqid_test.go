@@ -229,3 +229,113 @@ func TestRewriteInsertDefaults_RequiresDB(t *testing.T) {
 	// This coverage belongs in integration-tagged tests.
 	t.Skip("full rewrite requires a live DuckDB connection; see integration tests")
 }
+
+// ── stripReturningClause ──────────────────────────────────────────────────────
+
+func TestStripReturningClause(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantBase string
+		wantCols []string
+	}{
+		// No RETURNING clause
+		{
+			"INSERT INTO t (a) VALUES (1)",
+			"INSERT INTO t (a) VALUES (1)",
+			nil,
+		},
+		// Simple RETURNING id
+		{
+			"INSERT INTO t (a) VALUES (1) RETURNING id",
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id"},
+		},
+		// Multiple returning cols
+		{
+			"INSERT INTO t (a) VALUES (1) RETURNING id, created_at",
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id", "created_at"},
+		},
+		// Trailing semicolon
+		{
+			"INSERT INTO t (a) VALUES (1) RETURNING id;",
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id"},
+		},
+		// Case-insensitive RETURNING keyword
+		{
+			"INSERT INTO t (a) VALUES (1) returning id",
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id"},
+		},
+		// Double-quoted column name
+		{
+			`INSERT INTO t (a) VALUES (1) RETURNING "id"`,
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id"},
+		},
+		// Multiple double-quoted column names
+		{
+			`INSERT INTO t (a) VALUES (1) RETURNING "id", "created_at"`,
+			"INSERT INTO t (a) VALUES (1)",
+			[]string{"id", "created_at"},
+		},
+	}
+
+	for _, tc := range cases {
+		gotBase, gotCols := stripReturningClause(tc.input)
+		if gotBase != tc.wantBase {
+			t.Errorf("stripReturningClause(%q) base = %q; want %q", tc.input, gotBase, tc.wantBase)
+		}
+		if len(gotCols) != len(tc.wantCols) {
+			t.Errorf("stripReturningClause(%q) cols = %v; want %v", tc.input, gotCols, tc.wantCols)
+			continue
+		}
+		for i, col := range gotCols {
+			if col != tc.wantCols[i] {
+				t.Errorf("stripReturningClause(%q) cols[%d] = %q; want %q", tc.input, i, col, tc.wantCols[i])
+			}
+		}
+	}
+}
+
+// ── replaceIDSubqueries ───────────────────────────────────────────────────────
+
+func TestReplaceIDSubqueries(t *testing.T) {
+	cases := []struct {
+		query  string
+		table  string
+		ids    []int64
+		want   string
+	}{
+		{
+			query: "INSERT INTO orders (id, name) VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM orders), 'x')",
+			table: "orders",
+			ids:   []int64{5},
+			want:  "INSERT INTO orders (id, name) VALUES (5, 'x')",
+		},
+		{
+			// Multi-row
+			query: "INSERT INTO orders (id, name) VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM orders), 'a'), ((SELECT COALESCE(MAX(id), 0) + 2 FROM orders), 'b')",
+			table: "orders",
+			ids:   []int64{3, 4},
+			want:  "INSERT INTO orders (id, name) VALUES (3, 'a'), (4, 'b')",
+		},
+		{
+			// Schema-qualified table name
+			query: "INSERT INTO lake.accounts (id, name) VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM lake.accounts), 'z')",
+			table: "lake.accounts",
+			ids:   []int64{10},
+			want:  "INSERT INTO lake.accounts (id, name) VALUES (10, 'z')",
+		},
+	}
+
+	for _, tc := range cases {
+		got := replaceIDSubqueries(tc.query, tc.table, tc.ids)
+		if got != tc.want {
+			t.Errorf("replaceIDSubqueries(%q, %q, %v)\n  got  %q\n  want %q",
+				tc.query, tc.table, tc.ids, got, tc.want)
+		}
+	}
+}
+

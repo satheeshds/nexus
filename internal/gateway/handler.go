@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/satheeshds/nexus/internal/pool"
@@ -127,6 +128,24 @@ func (h *handler) handleDescribe(ctx context.Context, objectType byte, query str
 		_ = h.backend.Send(&pgproto3.ParameterDescription{ParameterOIDs: outOIDs})
 	}
 
+	// For INSERT … RETURNING the describe query SELECT * FROM (INSERT …) is not
+	// valid in DuckDB.  Synthesise the RowDescription directly from the
+	// RETURNING column list instead.
+	if _, returningCols := stripReturningClause(query); returningCols != nil {
+		fields := make([]pgproto3.FieldDescription, len(returningCols))
+		for i, col := range returningCols {
+			fields[i] = pgproto3.FieldDescription{
+				Name:         []byte(col),
+				DataTypeOID:  returningColOID(col),
+				DataTypeSize: -1,
+				TypeModifier: -1,
+				Format:       0,
+			}
+		}
+		_ = h.backend.Send(&pgproto3.RowDescription{Fields: fields})
+		return
+	}
+
 	// 2. Get RowDescription (execute with LIMIT 0 to get schema)
 	// Some simple SQL optimization here for DuckDB
 	describeQuery := fmt.Sprintf("SELECT * FROM (%s) AS __gateway_describe LIMIT 0", query)
@@ -179,6 +198,14 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 	// 'updated_at' defaults when those columns exist in the target table but
 	// are not present in the incoming INSERT.
 	query, args = rewriteInsertDefaults(ctx, h.session.Conn, query, args, h.tableAutoCache)
+
+	// DuckLake does not support RETURNING on INSERT.  When the (possibly
+	// rewritten) query contains a RETURNING clause, emulate it in the gateway:
+	// strip the clause, execute the plain INSERT, and synthesise the result rows.
+	if baseQuery, returningCols := stripReturningClause(query); returningCols != nil {
+		h.executeInsertReturning(ctx, query, baseQuery, args, returningCols, sendRowDesc, sendReady)
+		return
+	}
 
 	actualParams := guessParamCount(query)
 	if len(args) > actualParams {
@@ -253,6 +280,168 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 		CommandTag: []byte(fmt.Sprintf("SELECT %d", rowCount)),
 	})
 
+	if sendReady {
+		_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	}
+}
+
+// returningColOID returns the most appropriate Postgres OID for the well-known
+// auto-injectable columns that appear in RETURNING clauses.  All other columns
+// fall back to TEXT (OID 25) which is what the rest of the gateway uses.
+func returningColOID(col string) uint32 {
+	switch col {
+	case "id":
+		return 20 // INT8 / BIGINT
+	case "created_at", "updated_at":
+		return 1114 // TIMESTAMP
+	default:
+		return 25 // TEXT
+	}
+}
+
+// executeInsertReturning handles INSERT … RETURNING by:
+//  1. Pre-computing the sequential id value(s) so they can be returned.
+//  2. Replacing the injected scalar subquery(ies) with the literal id(s).
+//  3. Executing the plain INSERT (without RETURNING).
+//  4. Emitting synthetic DataRow(s) for the RETURNING columns.
+//
+// Supported RETURNING columns:
+//   - id         → the pre-computed sequential id
+//   - created_at / updated_at → current UTC timestamp (matching injected NOW())
+//   - any other column → NULL (safe default; most ORMs only need id)
+func (h *handler) executeInsertReturning(
+	ctx context.Context,
+	fullQuery, baseQuery string,
+	args []any,
+	returningCols []string,
+	sendRowDesc bool,
+	sendReady bool,
+) {
+	// Parse the base INSERT to learn the table name and row count.
+	m := insertRE.FindStringSubmatch(baseQuery)
+	if m == nil {
+		// Unrecognised form — pass the original query through so the real
+		// DuckLake error surfaces to the client.
+		slog.Warn("seqid: RETURNING: unrecognised INSERT form, passing through",
+			"tenant", h.session.TenantID, "sql", fullQuery)
+		h.executeSQL(ctx, baseQuery, args, sendRowDesc, sendReady)
+		return
+	}
+
+	tableName := strings.TrimSpace(m[1])
+	valuesRaw := strings.TrimSpace(m[3])
+	numRows := len(splitValueRows(valuesRaw))
+	if numRows == 0 {
+		numRows = 1
+	}
+
+	// Determine whether we need to synthesise id values.
+	needsIDReturn := false
+	for _, col := range returningCols {
+		if col == "id" {
+			needsIDReturn = true
+			break
+		}
+	}
+
+	// Pre-compute sequential ids (one SELECT round-trip).
+	var ids []int64
+	if needsIDReturn {
+		ids = precomputeInsertIDs(ctx, h.session.Conn, tableName, numRows)
+		if ids == nil {
+			// Cannot pre-compute ids — the INSERT would succeed but the client
+			// would receive NULL for the returned id, which breaks ORMs.
+			// Surface the failure explicitly instead.
+			slog.Error("seqid: RETURNING: failed to pre-compute id values",
+				"tenant", h.session.TenantID, "table", tableName)
+			_ = h.backend.Send(&pgproto3.ErrorResponse{
+				Severity: "ERROR",
+				Code:     "XX000",
+				Message:  "could not compute next sequential id for RETURNING clause",
+			})
+			if sendReady {
+				_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+			}
+			return
+		}
+	}
+
+	// Replace scalar subqueries in baseQuery with literal id values.
+	execQuery := baseQuery
+	if len(ids) > 0 {
+		execQuery = replaceIDSubqueries(execQuery, tableName, ids)
+	}
+
+	// Adjust param slice length.
+	actualParams := guessParamCount(execQuery)
+	execArgs := args
+	if len(execArgs) > actualParams {
+		execArgs = execArgs[:actualParams]
+	} else {
+		for len(execArgs) < actualParams {
+			execArgs = append(execArgs, nil)
+		}
+	}
+
+	slog.Debug("gateway: execute insert (RETURNING emulated)",
+		"tenant", h.session.TenantID, "sql", execQuery, "params", len(execArgs),
+		"returning", returningCols)
+
+	// Execute the INSERT without RETURNING.
+	dbRows, err := h.session.Conn.QueryContext(ctx, execQuery, execArgs...)
+	if err != nil {
+		slog.Error("gateway: execution error", "tenant", h.session.TenantID, "err", err)
+		_ = h.backend.Send(&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     "42601",
+			Message:  err.Error(),
+		})
+		if sendReady {
+			_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		}
+		return
+	}
+	dbRows.Close()
+
+	// Capture a single NOW() string for all timestamp columns in this batch.
+	tsValue := nowString()
+
+	// Send RowDescription (only for simple-query protocol; extended uses Describe).
+	if sendRowDesc {
+		fields := make([]pgproto3.FieldDescription, len(returningCols))
+		for i, col := range returningCols {
+			fields[i] = pgproto3.FieldDescription{
+				Name:         []byte(col),
+				DataTypeOID:  returningColOID(col),
+				DataTypeSize: -1,
+				TypeModifier: -1,
+				Format:       0,
+			}
+		}
+		_ = h.backend.Send(&pgproto3.RowDescription{Fields: fields})
+	}
+
+	// Emit one DataRow per inserted row.
+	for rowIdx := 0; rowIdx < numRows; rowIdx++ {
+		dataRow := pgproto3.DataRow{Values: make([][]byte, len(returningCols))}
+		for colIdx, col := range returningCols {
+			switch col {
+			case "id":
+				if rowIdx < len(ids) {
+					dataRow.Values[colIdx] = []byte(fmt.Sprintf("%d", ids[rowIdx]))
+				}
+			case "created_at", "updated_at":
+				dataRow.Values[colIdx] = []byte(tsValue)
+			default:
+				dataRow.Values[colIdx] = nil
+			}
+		}
+		_ = h.backend.Send(&dataRow)
+	}
+
+	_ = h.backend.Send(&pgproto3.CommandComplete{
+		CommandTag: []byte(fmt.Sprintf("INSERT 0 %d", numRows)),
+	})
 	if sendReady {
 		_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 	}
