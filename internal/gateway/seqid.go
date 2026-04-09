@@ -225,7 +225,10 @@ func columnListContains(colList, colName string) bool {
 // queryTableAutoColumns queries information_schema.columns once for the given
 // table and returns which auto-injectable columns it has.
 func queryTableAutoColumns(ctx context.Context, conn *duckdb.Conn, tableName string) *tableAutoColumns {
-	schema, table := splitTableName(tableName)
+	// splitTableName would return schema="lake" for "lake.accounts", but
+	// DuckLake tables are stored in schema "main" within the attached "lake"
+	// catalog.  We only need the bare table name here; schema is not used.
+	_, table := splitTableName(tableName)
 
 	intTypes := buildTypeList(integerDataTypes)
 	tsTypes := buildTypeList(timestampDataTypes)
@@ -236,12 +239,9 @@ func queryTableAutoColumns(ctx context.Context, conn *duckdb.Conn, tableName str
 	// the current catalog when search_path = 'lake') and filter by
 	// table_catalog = 'lake' to ensure we never match in-memory tables.
 	//
-	// We intentionally omit a table_schema filter: when the client writes
-	// "lake.accounts", splitTableName returns schema="lake", but DuckLake
-	// tables are stored in schema "main" within the attached "lake" catalog.
-	// Filtering by table_catalog + table_name is specific enough in practice
-	// because DuckLake only exposes one schema per catalog.
-	_ = schema // schema is unused; kept so splitTableName can be extended later
+	// We intentionally omit a table_schema filter: filtering by
+	// table_catalog + table_name is specific enough in practice because
+	// DuckLake only exposes one schema per catalog.
 	query := fmt.Sprintf(`
 SELECT column_name, upper(data_type)
 FROM information_schema.columns
