@@ -102,7 +102,13 @@ func rewriteInsertDefaults(
 	auto, seen := tableAutoCache[tableName]
 	if !seen {
 		auto = queryTableAutoColumns(ctx, conn, tableName)
-		tableAutoCache[tableName] = auto
+		// Avoid caching the ambiguous all-false result. queryTableAutoColumns
+		// returns the same shape both when the table has none of the tracked
+		// auto-managed columns and when metadata lookup fails, so caching that
+		// value can permanently suppress future retries after a transient error.
+		if auto.hasIntID || auto.hasCreatedAt || auto.hasUpdatedAt {
+			tableAutoCache[tableName] = auto
+		}
 	}
 
 	// Determine which columns need injection.
