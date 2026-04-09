@@ -324,7 +324,7 @@ func (h *handler) executeInsertReturning(
 		// DuckLake error surfaces to the client.
 		slog.Warn("seqid: RETURNING: unrecognised INSERT form, passing through",
 			"tenant", h.session.TenantID, "sql", fullQuery)
-		h.executeSQL(ctx, baseQuery, args, sendRowDesc, sendReady)
+		h.executeSQL(ctx, fullQuery, args, sendRowDesc, sendReady)
 		return
 	}
 
