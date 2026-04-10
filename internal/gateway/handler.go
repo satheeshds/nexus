@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,8 +19,9 @@ type statement struct {
 }
 
 type portal struct {
-	query  string
-	params []any
+	query             string
+	params            []any
+	resultFormatCodes []int16
 }
 
 // handler runs the query loop for a single client connection.
@@ -72,8 +74,9 @@ func (h *handler) run(ctx context.Context) {
 				}
 			}
 			h.portals[m.DestinationPortal] = portal{
-				query:  s.query,
-				params: params,
+				query:             s.query,
+				params:            params,
+				resultFormatCodes: m.ResultFormatCodes,
 			}
 			_ = h.backend.Send(&pgproto3.BindComplete{})
 
@@ -90,7 +93,7 @@ func (h *handler) run(ctx context.Context) {
 
 		case *pgproto3.Execute:
 			p := h.portals[m.Portal]
-			h.handleExecute(ctx, p.query, p.params)
+			h.handleExecute(ctx, p.query, p.params, p.resultFormatCodes)
 
 		case *pgproto3.Sync:
 			_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
@@ -186,14 +189,14 @@ func (h *handler) handleDescribe(ctx context.Context, objectType byte, query str
 }
 
 func (h *handler) handleQuery(ctx context.Context, query string) {
-	h.executeSQL(ctx, query, nil, true, true)
+	h.executeSQL(ctx, query, nil, nil, true, true)
 }
 
-func (h *handler) handleExecute(ctx context.Context, query string, params []any) {
-	h.executeSQL(ctx, query, params, false, false)
+func (h *handler) handleExecute(ctx context.Context, query string, params []any, resultFormatCodes []int16) {
+	h.executeSQL(ctx, query, params, resultFormatCodes, false, false)
 }
 
-func (h *handler) executeSQL(ctx context.Context, query string, args []any, sendRowDesc bool, sendReady bool) {
+func (h *handler) executeSQL(ctx context.Context, query string, args []any, resultFormatCodes []int16, sendRowDesc bool, sendReady bool) {
 	// Rewrite INSERT statements to inject sequential 'id', 'created_at', and
 	// 'updated_at' defaults when those columns exist in the target table but
 	// are not present in the incoming INSERT.
@@ -205,7 +208,7 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 	// rewritten) query contains a RETURNING clause, emulate it in the gateway:
 	// strip the clause, execute the plain INSERT, and synthesise the result rows.
 	if baseQuery, returningCols := stripReturningClause(query); returningCols != nil {
-		h.executeInsertReturning(ctx, query, baseQuery, args, returningCols, sendRowDesc, sendReady)
+		h.executeInsertReturning(ctx, query, baseQuery, args, returningCols, resultFormatCodes, sendRowDesc, sendReady)
 		return
 	}
 
@@ -272,7 +275,18 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 		}
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(cols))}
 		for i, v := range vals {
-			dataRow.Values[i] = toBytes(v)
+			format := int16(0)
+			if i < len(resultFormatCodes) {
+				format = resultFormatCodes[i]
+			} else if len(resultFormatCodes) == 1 {
+				format = resultFormatCodes[0]
+			}
+
+			if format == 1 {
+				dataRow.Values[i] = toBinary(v)
+			} else {
+				dataRow.Values[i] = toBytes(v)
+			}
 		}
 		_ = h.backend.Send(&dataRow)
 		rowCount++
@@ -316,6 +330,7 @@ func (h *handler) executeInsertReturning(
 	fullQuery, baseQuery string,
 	args []any,
 	returningCols []string,
+	resultFormatCodes []int16,
 	sendRowDesc bool,
 	sendReady bool,
 ) {
@@ -326,7 +341,7 @@ func (h *handler) executeInsertReturning(
 		// DuckLake error surfaces to the client.
 		slog.Warn("seqid: RETURNING: unrecognised INSERT form, passing through",
 			"tenant", h.session.TenantID, "sql", fullQuery)
-		h.executeSQL(ctx, fullQuery, args, sendRowDesc, sendReady)
+		h.executeSQL(ctx, fullQuery, args, resultFormatCodes, sendRowDesc, sendReady)
 		return
 	}
 
@@ -448,8 +463,19 @@ func (h *handler) executeInsertReturning(
 	for rowIdx := 0; rowIdx < numRows; rowIdx++ {
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(returningCols))}
 		for colIdx, col := range returningCols {
+			format := int16(0)
+			if colIdx < len(resultFormatCodes) {
+				format = resultFormatCodes[colIdx]
+			} else if len(resultFormatCodes) == 1 {
+				format = resultFormatCodes[0]
+			}
+
 			if col == "id" && rowIdx < len(ids) {
-				dataRow.Values[colIdx] = []byte(fmt.Sprintf("%d", ids[rowIdx]))
+				if format == 1 {
+					dataRow.Values[colIdx] = toBinary(ids[rowIdx])
+				} else {
+					dataRow.Values[colIdx] = []byte(fmt.Sprintf("%d", ids[rowIdx]))
+				}
 			}
 			// all other columns → nil (NULL)
 		}
@@ -498,4 +524,28 @@ func guessParamCount(sql string) int {
 		}
 	}
 	return maxParam
+}
+
+func toBinary(v any) []byte {
+	if v == nil {
+		return nil
+	}
+	switch t := v.(type) {
+	case int64:
+		b := make([]byte, 8)
+		binary.BigEndian.PutUint64(b, uint64(t))
+		return b
+	case int32:
+		b := make([]byte, 4)
+		binary.BigEndian.PutUint32(b, uint32(t))
+		return b
+	case int:
+		b := make([]byte, 8)
+		binary.BigEndian.PutUint64(b, uint64(t))
+		return b
+	case []byte:
+		return t
+	default:
+		return toBytes(v)
+	}
 }
