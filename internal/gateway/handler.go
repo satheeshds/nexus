@@ -176,7 +176,7 @@ func (h *handler) handleDescribe(ctx context.Context, objectType byte, query str
 			Name:                 []byte(c.Name()),
 			TableOID:             0,
 			TableAttributeNumber: 0,
-			DataTypeOID:          25, // TEXT OID
+			DataTypeOID:          duckTypeToOID(c.DatabaseTypeName()),
 			DataTypeSize:         -1,
 			TypeModifier:         -1,
 			Format:               0, // text format
@@ -249,7 +249,7 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 		for i, c := range cols {
 			fields[i] = pgproto3.FieldDescription{
 				Name:         []byte(c.Name()),
-				DataTypeOID:  25, // TEXT
+				DataTypeOID:  duckTypeToOID(c.DatabaseTypeName()),
 				DataTypeSize: -1,
 				TypeModifier: -1,
 				Format:       0,
@@ -461,6 +461,45 @@ func (h *handler) executeInsertReturning(
 	})
 	if sendReady {
 		_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+	}
+}
+
+// duckTypeToOID maps DuckDB/Go driver type names to PostgreSQL OIDs so that
+// client drivers can decode column values into the correct native types
+// (e.g. time.Time for timestamps, decimal for NUMERIC) instead of receiving
+// everything as a plain text string.
+func duckTypeToOID(dbTypeName string) uint32 {
+	switch strings.ToUpper(dbTypeName) {
+	case "BIGINT", "INT8", "HUGEINT", "UBIGINT":
+		return 20 // INT8
+	case "INTEGER", "INT4", "INT", "SIGNED":
+		return 23 // INT4
+	case "SMALLINT", "INT2", "SHORT":
+		return 21 // INT2
+	case "BOOLEAN", "BOOL":
+		return 16 // BOOL
+	case "REAL", "FLOAT4":
+		return 700 // FLOAT4
+	case "DOUBLE", "FLOAT8", "FLOAT":
+		return 701 // FLOAT8
+	case "DECIMAL", "NUMERIC":
+		return 1700 // NUMERIC
+	case "TIMESTAMP", "DATETIME":
+		return 1114 // TIMESTAMP
+	case "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE":
+		return 1184 // TIMESTAMPTZ
+	case "DATE":
+		return 1082 // DATE
+	case "TIME":
+		return 1083 // TIME
+	case "INTERVAL":
+		return 1186 // INTERVAL
+	case "UUID":
+		return 2950 // UUID
+	case "BLOB", "BYTEA":
+		return 17 // BYTEA
+	default:
+		return 25 // TEXT
 	}
 }
 
