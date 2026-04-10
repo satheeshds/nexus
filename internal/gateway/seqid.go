@@ -97,8 +97,10 @@ func rewriteInsertDefaults(
 	colListRaw := m[2]
 	valuesRaw := strings.TrimSpace(m[3])
 
+	slog.Debug("seqid: rewrite insert defaults", "table", tableName, "colListRaw", colListRaw, "valuesRaw", valuesRaw)
 	// Get (or populate) the cached column info for this table.
 	auto, seen := tableAutoCache[tableName]
+	slog.Debug("seqid: table auto cache", "table", tableName, "seen", seen, "auto", auto)
 	if !seen {
 		auto = queryTableAutoColumns(ctx, conn, tableName)
 		// Avoid caching the ambiguous all-false result. queryTableAutoColumns
@@ -116,6 +118,7 @@ func rewriteInsertDefaults(
 	needUpdatedAt := auto.hasUpdatedAt && !columnListContains(colListRaw, "updated_at")
 
 	if !needID && !needCreatedAt && !needUpdatedAt {
+		slog.Debug("seqid: no columns need injection", "table", tableName, "needID", needID, "needCreatedAt", needCreatedAt, "needUpdatedAt", needUpdatedAt)
 		return query, args
 	}
 
@@ -275,6 +278,7 @@ WHERE table_catalog = 'lake'
 			result.hasUpdatedAt = true
 		}
 	}
+	slog.Debug("seqid: query table auto columns", "table", tableName, "result", result)
 	return result
 }
 

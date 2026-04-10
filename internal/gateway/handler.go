@@ -26,9 +26,9 @@ type portal struct {
 type handler struct {
 	backend        *pgproto3.Backend
 	session        *pool.Session
-	statements     map[string]statement          // statement name -> SQL and param count
-	portals        map[string]portal             // portal name -> SQL and params
-	tableAutoCache map[string]*tableAutoColumns  // table name -> auto-injectable columns (seqid/timestamp cache)
+	statements     map[string]statement         // statement name -> SQL and param count
+	portals        map[string]portal            // portal name -> SQL and params
+	tableAutoCache map[string]*tableAutoColumns // table name -> auto-injectable columns (seqid/timestamp cache)
 }
 
 func (h *handler) run(ctx context.Context) {
@@ -198,6 +198,8 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, send
 	// 'updated_at' defaults when those columns exist in the target table but
 	// are not present in the incoming INSERT.
 	query, args = rewriteInsertDefaults(ctx, h.session.Conn, query, args, h.tableAutoCache)
+
+	slog.Debug("gateway: execute after rewrite", "tenant", h.session.TenantID, "sql", query, "params", len(args))
 
 	// DuckLake does not support RETURNING on INSERT.  When the (possibly
 	// rewritten) query contains a RETURNING clause, emulate it in the gateway:
