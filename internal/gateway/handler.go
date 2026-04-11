@@ -337,11 +337,18 @@ func (h *handler) executeInsertReturning(
 	// Parse the base INSERT to learn the table name and row count.
 	m := insertRE.FindStringSubmatch(baseQuery)
 	if m == nil {
-		// Unrecognised form — pass the original query through so the real
-		// DuckLake error surfaces to the client.
-		slog.Warn("seqid: RETURNING: unrecognised INSERT form, passing through",
+		// Unrecognised form — do not re-enter executeSQL with the same
+		// RETURNING query, or we will recurse back into this emulation path.
+		// Instead, return a clear unsupported error for RETURNING forms that
+		// the gateway cannot emulate safely.
+		slog.Warn("seqid: RETURNING: unrecognised INSERT form",
 			"tenant", h.session.TenantID, "sql", fullQuery)
-		h.executeSQL(ctx, fullQuery, args, resultFormatCodes, sendRowDesc, sendReady)
+		h.sendErrorResponse(&pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     "0A000",
+			Message:  "unsupported INSERT ... RETURNING form",
+			Detail:   "This gateway only emulates RETURNING for recognised INSERT ... VALUES statements.",
+		}, sendReady)
 		return
 	}
 
