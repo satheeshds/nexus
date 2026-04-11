@@ -20,6 +20,11 @@ type Session struct {
 	PGSchema  string
 	CreatedAt time.Time
 	LastUsed  time.Time
+
+	// InsertMu serializes INSERT…RETURNING emulation for this tenant's session.
+	// The gateway must hold this lock for the entire precompute-MAX(id)+execute
+	// sequence to prevent two concurrent clients from computing the same base ID.
+	InsertMu sync.Mutex
 }
 
 // Pool manages per-tenant DuckDB sessions.
