@@ -275,10 +275,10 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, resu
 		}
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(cols))}
 		for i, v := range vals {
-			// Always return text-formatted column values here.
+			// Always return text-formatted values.
 			// RowDescription always advertises Format=0 (text), so DataRow
-			// values must also be text.  Per-OID binary encoding is not yet
-			// implemented; resultFormatCodes is intentionally ignored.
+			// values must match.  Per-OID binary encoding is not yet
+			// implemented.
 			dataRow.Values[i] = toBytes(v)
 		}
 		_ = h.backend.Send(&dataRow)
