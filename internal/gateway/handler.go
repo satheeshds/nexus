@@ -343,12 +343,15 @@ func (h *handler) executeInsertReturning(
 		// the gateway cannot emulate safely.
 		slog.Warn("seqid: RETURNING: unrecognised INSERT form",
 			"tenant", h.session.TenantID, "sql", fullQuery)
-		h.sendErrorResponse(&pgproto3.ErrorResponse{
+		_ = h.backend.Send(&pgproto3.ErrorResponse{
 			Severity: "ERROR",
 			Code:     "0A000",
 			Message:  "unsupported INSERT ... RETURNING form",
 			Detail:   "This gateway only emulates RETURNING for recognised INSERT ... VALUES statements.",
-		}, sendReady)
+		})
+		if sendReady {
+			_ = h.backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
+		}
 		return
 	}
 

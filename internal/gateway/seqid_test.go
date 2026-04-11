@@ -105,6 +105,26 @@ func TestSplitValueRows(t *testing.T) {
 			"(1, 'a'), (2, 'b'), (3, 'c')",
 			[]string{"(1, 'a')", "(2, 'b')", "(3, 'c')"},
 		},
+		{
+			// Trailing ON CONFLICT clause must not be counted as a row
+			"(1) ON CONFLICT (id) DO NOTHING",
+			[]string{"(1)"},
+		},
+		{
+			// Multiple rows followed by ON CONFLICT
+			"(1, 'a'), (2, 'b') ON CONFLICT (id) DO NOTHING",
+			[]string{"(1, 'a')", "(2, 'b')"},
+		},
+		{
+			// Trailing semicolon must not create an extra row
+			"(1, 2);",
+			[]string{"(1, 2)"},
+		},
+		{
+			// Trailing RETURNING clause must not create an extra row
+			"(1, 2) RETURNING id",
+			[]string{"(1, 2)"},
+		},
 	}
 
 	for _, tc := range cases {

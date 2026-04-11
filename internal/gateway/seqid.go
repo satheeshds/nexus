@@ -318,7 +318,12 @@ func splitTableName(tableName string) (schema, table string) {
 // splitValueRows splits the VALUES portion of an INSERT statement into
 // individual row strings (each with its surrounding parentheses). It
 // correctly handles nested parentheses and single-quoted string literals
-// (including doubled single-quote escape sequences ”).
+// (including doubled single-quote escape sequences '').
+//
+// It stops collecting rows as soon as a closing paren at depth 0 is NOT
+// immediately followed by a comma (allowing for whitespace). This prevents
+// trailing SQL such as ON CONFLICT (id) DO NOTHING, RETURNING ..., or a
+// trailing semicolon from being mistaken for additional VALUE rows.
 func splitValueRows(valuesStr string) []string {
 	var rows []string
 	depth := 0
@@ -352,6 +357,19 @@ func splitValueRows(valuesStr string) []string {
 			if depth == 0 && start >= 0 {
 				rows = append(rows, valuesStr[start:i+1])
 				start = -1
+
+				// Peek ahead: skip whitespace and check for a comma.
+				// If the next non-whitespace character is not ',', we have
+				// reached the end of the VALUES row list — stop here so that
+				// trailing clauses (ON CONFLICT, RETURNING, semicolons, etc.)
+				// are not mistakenly treated as additional rows.
+				j := i + 1
+				for j < len(valuesStr) && (valuesStr[j] == ' ' || valuesStr[j] == '\t' || valuesStr[j] == '\r' || valuesStr[j] == '\n') {
+					j++
+				}
+				if j >= len(valuesStr) || valuesStr[j] != ',' {
+					return rows
+				}
 			}
 		}
 	}
