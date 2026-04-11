@@ -275,18 +275,11 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, resu
 		}
 		dataRow := pgproto3.DataRow{Values: make([][]byte, len(cols))}
 		for i, v := range vals {
-			format := int16(0)
-			if i < len(resultFormatCodes) {
-				format = resultFormatCodes[i]
-			} else if len(resultFormatCodes) == 1 {
-				format = resultFormatCodes[0]
-			}
-
-			if format == 1 {
-				dataRow.Values[i] = toBinary(v)
-			} else {
-				dataRow.Values[i] = toBytes(v)
-			}
+			// Always return text-formatted column values here.
+			// RowDescription always advertises Format=0 (text), so DataRow
+			// values must also be text.  Per-OID binary encoding is not yet
+			// implemented; resultFormatCodes is intentionally ignored.
+			dataRow.Values[i] = toBytes(v)
 		}
 		_ = h.backend.Send(&dataRow)
 		rowCount++
@@ -506,8 +499,10 @@ func (h *handler) executeInsertReturning(
 // everything as a plain text string.
 func duckTypeToOID(dbTypeName string) uint32 {
 	switch strings.ToUpper(dbTypeName) {
-	case "BIGINT", "INT8", "HUGEINT", "UBIGINT":
+	case "BIGINT", "INT8":
 		return 20 // INT8
+	case "HUGEINT", "UBIGINT":
+		return 1700 // NUMERIC (128-bit / unsigned — too wide for INT8)
 	case "INTEGER", "INT4", "INT", "SIGNED":
 		return 23 // INT4
 	case "SMALLINT", "INT2", "SHORT":
