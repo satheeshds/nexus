@@ -283,10 +283,11 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, resu
 			// implemented.
 			dataRow.Values[i] = toBytes(v)
 		}
-		slog.Debug("gateway: data row", "tenant", h.session.TenantID, "row", dataRow)
 		_ = h.backend.Send(&dataRow)
 		rowCount++
 	}
+
+	slog.Debug("gateway: query result sent", "tenant", h.session.TenantID, "row_count", rowCount, "column_count", len(cols))
 
 	_ = h.backend.Send(&pgproto3.CommandComplete{
 		CommandTag: []byte(fmt.Sprintf("SELECT %d", rowCount)),
