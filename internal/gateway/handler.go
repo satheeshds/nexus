@@ -6,7 +6,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgproto3/v2"
 	"github.com/satheeshds/nexus/internal/pool"
@@ -281,6 +283,7 @@ func (h *handler) executeSQL(ctx context.Context, query string, args []any, resu
 			// implemented.
 			dataRow.Values[i] = toBytes(v)
 		}
+		slog.Debug("gateway: data row", "tenant", h.session.TenantID, "row", dataRow)
 		_ = h.backend.Send(&dataRow)
 		rowCount++
 	}
@@ -545,6 +548,33 @@ func toBytes(v any) []byte {
 		return []byte(t)
 	case sql.RawBytes:
 		return []byte(t)
+	case int64:
+		return []byte(strconv.FormatInt(t, 10))
+	case int32:
+		return []byte(strconv.FormatInt(int64(t), 10))
+	case int:
+		return []byte(strconv.FormatInt(int64(t), 10))
+	case uint64:
+		return []byte(strconv.FormatUint(t, 10))
+	case uint32:
+		return []byte(strconv.FormatUint(uint64(t), 10))
+	case float64:
+		return []byte(strconv.FormatFloat(t, 'f', -1, 64))
+	case float32:
+		return []byte(strconv.FormatFloat(float64(t), 'f', -1, 32))
+	case bool:
+		// Postgres text protocol uses 't'/'f', not 'true'/'false'.
+		if t {
+			return []byte("t")
+		}
+		return []byte("f")
+	case time.Time:
+		// Postgres text format for TIMESTAMP (OID 1114): no timezone suffix.
+		// lib/pq and pgx both expect this format for timestamp columns.
+		if t.IsZero() {
+			return nil
+		}
+		return []byte(t.UTC().Format("2006-01-02 15:04:05.999999"))
 	default:
 		return []byte(fmt.Sprintf("%v", v))
 	}
