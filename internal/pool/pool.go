@@ -21,6 +21,11 @@ type Session struct {
 	CreatedAt time.Time
 	LastUsed  time.Time
 
+	// refs counts the number of active client connections currently using this
+	// session. The session is only evicted when refs reaches zero. Protected by
+	// Pool.mu.
+	refs int
+
 	// InsertMu serializes INSERT…RETURNING emulation for this tenant's session.
 	// The gateway must hold this lock for the entire precompute-MAX(id)+execute
 	// sequence to prevent two concurrent clients from computing the same base ID.
@@ -50,7 +55,10 @@ func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIO
 	return p
 }
 
-// Get returns an existing session for the tenant, or creates a new one.
+// Get returns an existing session for the tenant, or creates a new one, and
+// increments the session's reference count. The caller must call Release when
+// the session is no longer needed so that resources can be freed once all
+// active connections have finished.
 // It uses a double-check pattern: the lock is released while creating the
 // DuckDB session (which can involve network I/O), so other tenants are not
 // blocked. A race where two goroutines create sessions for the same tenant
@@ -62,9 +70,10 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	// First check under lock.
 	p.mu.Lock()
 	if s, ok := p.sessions[tenantID]; ok {
+		s.refs++
 		s.LastUsed = time.Now()
 		p.mu.Unlock()
-		slog.Debug("pool: reusing session", "tenant", tenantID)
+		slog.Debug("pool: reusing session", "tenant", tenantID, "refs", s.refs)
 		return s, nil
 	}
 	p.mu.Unlock()
@@ -113,6 +122,7 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 		PGSchema:  sa.PGSchema,
 		CreatedAt: now,
 		LastUsed:  now,
+		refs:      1,
 	}
 
 	// Re-acquire lock to publish. Another goroutine may have already inserted
@@ -120,11 +130,12 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	p.mu.Lock()
 	if existing, ok := p.sessions[tenantID]; ok {
 		// Another goroutine beat us; close our duplicate and use theirs.
+		existing.refs++
+		existing.LastUsed = time.Now()
 		p.mu.Unlock()
 		if err := conn.Close(); err != nil {
 			slog.Warn("pool: error closing duplicate session", "tenant", tenantID, "err", err)
 		}
-		existing.LastUsed = time.Now()
 		return existing, nil
 	}
 	p.sessions[tenantID] = newSession
@@ -133,11 +144,32 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	return newSession, nil
 }
 
-// Evict forcibly closes and removes a tenant's session.
+// Evict forcibly closes and removes a tenant's session regardless of active
+// references. Use Release for normal client-disconnect cleanup.
 func (p *Pool) Evict(tenantID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.evict(tenantID)
+}
+
+// Release decrements the reference count for the tenant's session. When the
+// last active connection releases the session (refs reaches zero) the session
+// is evicted from the pool and its underlying DuckDB connection is closed.
+func (p *Pool) Release(tenantID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	s, ok := p.sessions[tenantID]
+	if !ok {
+		return
+	}
+	s.refs--
+	slog.Debug("pool: released session ref", "tenant", tenantID, "refs", s.refs)
+	if s.refs < 0 {
+		slog.Warn("pool: ref count went negative, possible Release/Get mismatch", "tenant", tenantID, "refs", s.refs)
+	}
+	if s.refs <= 0 {
+		p.evict(tenantID)
+	}
 }
 
 func (p *Pool) evict(tenantID string) {
@@ -156,10 +188,14 @@ func (p *Pool) evictLoop() {
 	defer ticker.Stop()
 	for range ticker.C {
 		// Collect tenants to evict under lock, then close connections outside the lock
-		// to avoid blocking Get/Evict operations during potentially slow Close calls.
+		// to avoid blocking Get/Release operations during potentially slow Close calls.
 		var toEvict []*Session
 		p.mu.Lock()
 		for id, s := range p.sessions {
+			if s.refs > 0 {
+				// Session has active connections; do not evict.
+				continue
+			}
 			if time.Since(s.LastUsed) > p.poolCfg.SessionTTL {
 				slog.Info("pool: evicting idle session", "tenant", id)
 				toEvict = append(toEvict, s)
@@ -185,6 +221,7 @@ func (p *Pool) ExecForTenant(ctx context.Context, tenantID, query string) (int64
 	if err != nil {
 		return 0, fmt.Errorf("exec for tenant %q: %w", tenantID, err)
 	}
+	defer p.Release(tenantID)
 	result, err := session.Conn.ExecContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("exec for tenant %q: %w", tenantID, err)

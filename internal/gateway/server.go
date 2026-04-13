@@ -167,8 +167,8 @@ AuthOK:
 		return
 	}
 	// Evict the session when the client disconnects (logout) so that resources
-	// are released promptly and the next login gets a fresh, fast connection.
-	defer s.pool.Evict(claims.TenantID)
+	// are released promptly once all active connections for this tenant are gone.
+	defer s.pool.Release(claims.TenantID)
 
 	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
