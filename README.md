@@ -140,11 +140,12 @@ The following packages have unit tests that can be run without any external serv
 |---|---|---|
 | `internal/auth` | ~82% | JWT issue & validate, expiry, tamper, wrong-secret scenarios |
 | `internal/config` | ~98% | DSN/URL formatting, default values, env-var overrides |
-| `internal/control` | ~83% | All HTTP handlers, admin/JWT middleware, mock catalog & provisioner |
+| `internal/control` | ~82% | All HTTP handlers, admin query endpoint, admin/JWT middleware, mock catalog & provisioner |
+| `internal/gateway` | ~15% | Sequential-ID helpers: column list parsing, table name splitting, value row splitting, SQL string escaping |
 | `internal/tenant` | ~16% | Pure helpers: slug generation, API key generation, password validation |
 
-> **Note:** `internal/catalog`, `internal/storage`, `internal/duckdb`, `internal/pool`, and
-> `internal/gateway` require live infrastructure (Postgres, MinIO, DuckDB) and are covered by
+> **Note:** `internal/catalog`, `internal/storage`, `internal/duckdb`, and `internal/pool`
+> require live infrastructure (Postgres, MinIO, DuckDB) and are covered by
 > integration testing only. The packages above are fully unit-testable with no external dependencies.
 
 ---

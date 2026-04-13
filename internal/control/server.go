@@ -53,7 +53,7 @@ type Server struct {
 	listTenantsFunc func(ctx context.Context) ([]catalog.Tenant, error)
 }
 
-func NewServer(p TenantProvisioner, db CatalogStore, a *auth.Service, adminAPIKey string, , qr TenantQueryRunner) *Server {
+func NewServer(p TenantProvisioner, db CatalogStore, a *auth.Service, adminAPIKey string, qr TenantQueryRunner) *Server {
 	if qr == nil {
 		panic("control.NewServer: TenantQueryRunner must not be nil")
 	}
