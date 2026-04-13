@@ -1,11 +1,48 @@
-.PHONY: help build build-gateway build-control dev down migrate test tidy swagger
+APP_NAME ?= nexus
+IMAGE    ?= satheeshds/$(APP_NAME)
+TAG      ?= latest
+DOCKER   ?= docker
+COMPOSE  ?= $(DOCKER) compose
+ENV_FILE ?= .env
+
+export DOCKER_BUILDKIT ?= 1
 
 BINARY_GATEWAY := bin/nexus-gateway
 BINARY_CONTROL := bin/nexus-control
-DOCKER_COMPOSE  := docker compose -f deploy/docker-compose.yml --env-file .env
+DOCKER_COMPOSE  := $(COMPOSE) -f deploy/docker-compose.yml --env-file $(ENV_FILE)
+
+.PHONY: help image push compose-up compose-down build build-gateway build-control dev dev-infra down logs migrate migrate-status run-control run-gateway test test-integration tidy lint swagger demo-register demo-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# ── Docker Image ──────────────────────────────────────────────────────────────
+
+image: control-image gateway-image ## Build all Docker images
+#	$(DOCKER_COMPOSE) build
+
+control-image: ## Build nexus control image
+	$(DOCKER) build -f deploy/Dockerfile.control -t nexus-control .
+
+gateway-image: ## Build nexus gateway image
+	$(DOCKER) build -f deploy/Dockerfile.gateway -t nexus-gateway .
+
+push: ## Push all Docker images
+	@set -e; \
+	if $(DOCKER_COMPOSE) config | grep -Eq '^[[:space:]]*image:'; then \
+		$(DOCKER_COMPOSE) push; \
+	else \
+		echo "Error: deploy/docker-compose.yml does not define explicit image names for services."; \
+		echo "docker compose push requires services to have image: entries."; \
+		echo "Add image: definitions (for example using IMAGE=$(IMAGE) and TAG=$(TAG)) or push images with explicit build/tag/push commands."; \
+		exit 1; \
+	fi
+
+compose-up: ## Start the full stack with docker compose
+	$(DOCKER_COMPOSE) up -d --build
+
+compose-down: ## Stop the stack
+	$(DOCKER_COMPOSE) down
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 
@@ -34,10 +71,10 @@ logs: ## Follow logs for all services
 # ── Database ──────────────────────────────────────────────────────────────────
 
 migrate: ## Run pending migrations
-	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" up
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' $(ENV_FILE) | cut -d= -f2-)" up
 
 migrate-status: ## Show migration status
-	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' .env | cut -d= -f2-)" status
+	goose -dir migrations postgres "$(shell grep '^POSTGRES_DSN=' $(ENV_FILE) | cut -d= -f2-)" status
 
 # ── Development helpers ───────────────────────────────────────────────────────
 
@@ -65,6 +102,9 @@ run-gateway: ## Run gateway locally (requires dev-infra + control running)
 
 test: ## Run all tests
 	go test ./...
+
+test-integration: ## Run tests with the 'integration' build tag (requires external services; add //go:build integration to test files)
+	go test -tags integration -v -timeout 10m ./...
 
 tidy: ## Tidy go modules
 	go mod tidy

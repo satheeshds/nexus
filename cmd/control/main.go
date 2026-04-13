@@ -18,6 +18,7 @@ import (
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/control"
+	"github.com/satheeshds/nexus/internal/pool"
 	"github.com/satheeshds/nexus/internal/storage"
 	"github.com/satheeshds/nexus/internal/tenant"
 )
@@ -86,8 +87,12 @@ func main() {
 		cfg.Postgres, cfg.MinIO, cfg.DuckLake,
 	)
 
+	// Session pool – used by the admin query endpoint to execute SQL across tenants
+	sessionPool := pool.New(catalogDB, cfg.Postgres, cfg.MinIO, cfg.Pool)
+	defer sessionPool.Close()
+
 	// HTTP control plane server
-	srv := control.NewServer(provisioner, catalogDB, authSvc, cfg.Auth.AdminAPIKey)
+	srv := control.NewServer(provisioner, catalogDB, authSvc, cfg.Auth.AdminAPIKey, sessionPool)
 	addr := fmt.Sprintf("%s:%d", cfg.Control.Host, cfg.Control.Port)
 	httpServer := &http.Server{
 		Addr:         addr,

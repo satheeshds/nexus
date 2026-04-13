@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,6 +33,12 @@ type TenantProvisioner interface {
 	Delete(ctx context.Context, tenantID string) error
 	RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error)
 }
+  
+// TenantQueryRunner executes SQL statements against individual tenant DuckDB sessions.
+// Implement this interface (e.g. with *pool.Pool) to enable the admin query endpoint.
+type TenantQueryRunner interface {
+	ExecForTenant(ctx context.Context, tenantID, query string) (int64, error)
+}
 
 type Server struct {
 	router      *chi.Mux
@@ -39,12 +46,28 @@ type Server struct {
 	catalog     CatalogStore
 	auth        *auth.Service
 	adminAPIKey string
+	queryRunner TenantQueryRunner
+
+	// listTenantsFunc is used in tests to override catalog.ListTenants.
+	// If nil, the real catalog.DB method is used.
+	listTenantsFunc func(ctx context.Context) ([]catalog.Tenant, error)
 }
 
-func NewServer(p TenantProvisioner, db CatalogStore, a *auth.Service, adminAPIKey string) *Server {
-	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey}
+func NewServer(p TenantProvisioner, db CatalogStore, a *auth.Service, adminAPIKey string, , qr TenantQueryRunner) *Server {
+	if qr == nil {
+		panic("control.NewServer: TenantQueryRunner must not be nil")
+	}
+	s := &Server{provisioner: p, catalog: db, auth: a, adminAPIKey: adminAPIKey, queryRunner: qr}
 	s.router = s.buildRouter()
 	return s
+}
+
+// listTenants returns all tenants, using listTenantsFunc when set (tests only).
+func (s *Server) listTenants(ctx context.Context) ([]catalog.Tenant, error) {
+	if s.listTenantsFunc != nil {
+		return s.listTenantsFunc(ctx)
+	}
+	return s.catalog.ListTenants(ctx)
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -82,6 +105,7 @@ func (s *Server) buildRouter() *chi.Mux {
 			r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
 			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
 			r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
+			r.Post("/admin/query", s.handleAdminQuery)
 		})
 	})
 
@@ -371,6 +395,74 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 		"service_id":      serviceID,
 		"service_api_key": newKey,
 	})
+}
+
+type adminQueryRequest struct {
+	Query string `json:"query"`
+}
+
+// tenantQueryResult reports the outcome of running the admin query against a single tenant.
+type tenantQueryResult struct {
+	TenantID     string `json:"tenant_id"`
+	OrgName      string `json:"org_name"`
+	Success      bool   `json:"success"`
+	RowsAffected int64  `json:"rows_affected,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+type adminQueryResponse struct {
+	Results []tenantQueryResult `json:"results"`
+}
+
+// handleAdminQuery godoc
+// @Summary Run a SQL query across all tenants (Admin only)
+// @Description Executes the provided SQL statement against every tenant's DuckDB session.
+// @Description Intended for migrations and other administrative bulk operations.
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Param body body adminQueryRequest true "SQL query to execute"
+// @Success 200 {object} adminQueryResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Security AdminAuth
+// @Router /api/v1/admin/query [post]
+func (s *Server) handleAdminQuery(w http.ResponseWriter, r *http.Request) {
+	var req adminQueryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	query := strings.TrimSpace(req.Query)
+	if query == "" {
+		writeError(w, http.StatusBadRequest, "query is required")
+		return
+	}
+
+	tenants, err := s.listTenants(r.Context())
+	if err != nil {
+		slog.Error("admin query: list tenants", "err", err)
+		writeError(w, http.StatusInternalServerError, "could not list tenants")
+		return
+	}
+
+	results := make([]tenantQueryResult, 0, len(tenants))
+	for _, t := range tenants {
+		res := tenantQueryResult{TenantID: t.ID, OrgName: t.OrgName}
+		rowsAffected, execErr := s.queryRunner.ExecForTenant(r.Context(), t.ID, query)
+		if execErr != nil {
+			slog.Warn("admin query: exec failed", "tenant", t.ID, "err", execErr)
+			res.Success = false
+			res.Error = execErr.Error()
+		} else {
+			res.Success = true
+			res.RowsAffected = rowsAffected
+		}
+		results = append(results, res)
+	}
+
+	writeJSON(w, http.StatusOK, adminQueryResponse{Results: results})
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
