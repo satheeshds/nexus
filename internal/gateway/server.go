@@ -161,14 +161,13 @@ AuthOK:
 	// ── 4. Get/create tenant DuckDB session (before ReadyForQuery) ────────────
 	// Initialising the DuckDB session here (during login) rather than on the
 	// first query ensures the portal is immediately usable once authenticated.
+	// The session persists in the pool and is reused by subsequent connections;
+	// idle sessions are cleaned up by the background eviction loop.
 	session, err := s.pool.Get(ctx, claims.TenantID)
 	if err != nil {
 		_ = sendError(backend, fmt.Sprintf("could not open session: %v", err))
 		return
 	}
-	// Evict the session when the client disconnects (logout) so that resources
-	// are released promptly once all active connections for this tenant are gone.
-	defer s.pool.Release(claims.TenantID)
 
 	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
