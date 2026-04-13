@@ -157,14 +157,20 @@ AuthOK:
 	} {
 		_ = backend.Send(&pgproto3.ParameterStatus{Name: kv[0], Value: kv[1]})
 	}
-	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
-	// ── 4. Get/create tenant DuckDB session ──────────────────────────────────
+	// ── 4. Get/create tenant DuckDB session (before ReadyForQuery) ────────────
+	// Initialising the DuckDB session here (during login) rather than on the
+	// first query ensures the portal is immediately usable once authenticated.
 	session, err := s.pool.Get(ctx, claims.TenantID)
 	if err != nil {
 		_ = sendError(backend, fmt.Sprintf("could not open session: %v", err))
 		return
 	}
+	// Evict the session when the client disconnects (logout) so that resources
+	// are released promptly and the next login gets a fresh, fast connection.
+	defer s.pool.Evict(claims.TenantID)
+
+	_ = backend.Send(&pgproto3.ReadyForQuery{TxStatus: 'I'})
 
 	// ── 5. Query loop ─────────────────────────────────────────────────────────
 	h := &handler{backend: backend, session: session}
