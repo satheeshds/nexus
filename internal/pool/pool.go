@@ -58,6 +58,8 @@ func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIO
 // duplicate.
 // s3Prefix and pgSchema are derived from the catalog service account record to
 // prevent mismatches from stale or untrusted caller-supplied values.
+// Sessions are kept alive for reuse across connections; the background eviction
+// loop removes sessions that have been idle longer than the configured TTL.
 func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	// First check under lock.
 	p.mu.Lock()
@@ -120,11 +122,11 @@ func (p *Pool) Get(ctx context.Context, tenantID string) (*Session, error) {
 	p.mu.Lock()
 	if existing, ok := p.sessions[tenantID]; ok {
 		// Another goroutine beat us; close our duplicate and use theirs.
+		existing.LastUsed = time.Now()
 		p.mu.Unlock()
 		if err := conn.Close(); err != nil {
 			slog.Warn("pool: error closing duplicate session", "tenant", tenantID, "err", err)
 		}
-		existing.LastUsed = time.Now()
 		return existing, nil
 	}
 	p.sessions[tenantID] = newSession
@@ -150,7 +152,8 @@ func (p *Pool) evict(tenantID string) {
 	}
 }
 
-// evictLoop runs in the background and removes stale sessions.
+// evictLoop runs in the background and removes sessions that have been idle
+// longer than the configured TTL.
 func (p *Pool) evictLoop() {
 	ticker := time.NewTicker(p.poolCfg.EvictionInterval)
 	defer ticker.Stop()
