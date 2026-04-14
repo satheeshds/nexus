@@ -24,18 +24,11 @@ require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/apache/arrow-go/v18 v18.5.1 // indirect
 	github.com/duckdb/duckdb-go-bindings v0.10502.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/darwin-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/darwin-arm64 v0.1.21 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.10502.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64 v0.10502.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/linux-amd64 v0.10502.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/linux-arm64 v0.10502.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/windows-amd64 v0.10502.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/linux-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/linux-arm64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/windows-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go/arrowmapping v0.0.22 // indirect
-	github.com/duckdb/duckdb-go/mapping v0.0.22 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.7.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect

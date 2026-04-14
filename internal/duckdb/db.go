@@ -64,8 +64,9 @@ func OpenForTenant(
 		// 'postgres:<dsn>' + TYPE DUCKLAKE.
 		// This creates DuckLake metadata tables in pgSchema if they don't exist yet.
 		fmt.Sprintf(`ATTACH 'ducklake:postgres:%s' AS lake (
-			METADATA_SCHEMA '%s',
-			DATA_PATH       's3://%s/%s/'
+			METADATA_SCHEMA    '%s',
+			DATA_PATH          's3://%s/%s/',
+			AUTOMATIC_MIGRATION TRUE
 		);`,
 			pgCfg.DSN(),
 			pgSchema,
