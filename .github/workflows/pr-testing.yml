@@ -82,7 +82,7 @@ jobs:
             -d '{"org_name":"CI Tenant","email":"ci@example.com","password":"ci-password"}')
           tenant_id=$(jq -r '.tenant_id // empty' <<< "$register_response")
           if [[ -z "$tenant_id" ]]; then
-            echo "Failed to extract tenant_id from register response: $register_response"
+            echo "Failed to extract tenant_id from register response"
             exit 1
           fi
 
@@ -91,7 +91,7 @@ jobs:
             -d '{"email":"ci@example.com","password":"ci-password"}')
           token=$(jq -r '.token // empty' <<< "$login_response")
           if [[ -z "$token" ]]; then
-            echo "Failed to extract token from login response: $login_response"
+            echo "Failed to extract token from login response"
             exit 1
           fi
 
