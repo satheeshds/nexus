@@ -33,7 +33,6 @@ type TenantProvisioner interface {
 	Delete(ctx context.Context, tenantID string) error
 	RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error)
 }
-  
 // TenantQueryRunner executes SQL statements against individual tenant DuckDB sessions.
 // Implement this interface (e.g. with *pool.Pool) to enable the admin query endpoint.
 type TenantQueryRunner interface {
