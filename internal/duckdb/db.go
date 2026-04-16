@@ -42,9 +42,10 @@ func OpenForTenant(
 	}
 
 	stmts := []string{
-		// Install and load required extensions
+		// Install and load the ducklake extension (v1.0+).
+		// DuckLake v1.0 bundles postgres catalog support, so a separate
+		// postgres extension install/load is no longer required.
 		"INSTALL ducklake; LOAD ducklake;",
-		"INSTALL postgres; LOAD postgres;",
 		"INSTALL httpfs;  LOAD httpfs;",
 
 		// Configure S3/MinIO endpoint globally for this session
@@ -58,12 +59,14 @@ func OpenForTenant(
 			REGION      'us-east-1'
 		);`, minioCfg.AccessKey, minioCfg.SecretKey, minioCfg.Endpoint),
 
-		// ATTACH the tenant's DuckLake catalog
+		// ATTACH the tenant's DuckLake catalog using the v1.0 syntax.
+		// DuckLake v1.0 uses the 'ducklake:<catalog-dsn>' prefix instead of
+		// 'postgres:<dsn>' + TYPE DUCKLAKE.
 		// This creates DuckLake metadata tables in pgSchema if they don't exist yet.
-		fmt.Sprintf(`ATTACH 'postgres:%s' AS lake (
-			TYPE            DUCKLAKE,
-			METADATA_SCHEMA '%s',
-			DATA_PATH       's3://%s/%s/'
+		fmt.Sprintf(`ATTACH 'ducklake:postgres:%s' AS lake (
+			METADATA_SCHEMA    '%s',
+			DATA_PATH          's3://%s/%s/',
+			AUTOMATIC_MIGRATION TRUE
 		);`,
 			pgCfg.DSN(),
 			pgSchema,
