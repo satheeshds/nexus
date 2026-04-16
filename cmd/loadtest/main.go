@@ -141,12 +141,18 @@ func worker(ctx context.Context, db *sql.DB, query string, s *stats, wg *sync.Wa
 		// Drain rows so the connection is returned to the pool.
 		for rows.Next() {
 		}
-		if err := rows.Err(); err != nil && ctx.Err() == nil {
-			s.record(result{err: err})
-		} else {
-			s.record(result{latency: latency})
-		}
+		rowsErr := rows.Err()
 		rows.Close()
+		if rowsErr != nil {
+			// Context cancellation during row draining should not be recorded
+			// as a successful latency sample.
+			if ctx.Err() != nil {
+				return
+			}
+			s.record(result{err: rowsErr})
+			continue
+		}
+		s.record(result{latency: latency})
 	}
 }
 
