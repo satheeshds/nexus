@@ -52,7 +52,21 @@ func TestLoad_Defaults(t *testing.T) {
 		"NEXUS_AUTH_ADMIN_API_KEY",
 	}
 	for _, k := range unset {
-		os.Unsetenv(k)
+		prev, ok := os.LookupEnv(k)
+		if err := os.Unsetenv(k); err != nil {
+			t.Fatalf("Unsetenv(%q) unexpected error: %v", k, err)
+		}
+		t.Cleanup(func() {
+			var err error
+			if ok {
+				err = os.Setenv(k, prev)
+			} else {
+				err = os.Unsetenv(k)
+			}
+			if err != nil {
+				t.Errorf("restoring %q unexpected error: %v", k, err)
+			}
+		})
 	}
 
 	cfg, err := config.Load()
