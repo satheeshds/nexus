@@ -117,7 +117,6 @@ loadtest: build-loadtest ## Run the standalone load test against a running gatew
 	  -concurrency $(or $(NEXUS_LOADTEST_CONCURRENCY),10) \
 	  -duration $(or $(NEXUS_LOADTEST_DURATION),30s) \
 	  -query "$(or $(NEXUS_LOADTEST_QUERY),SELECT 1)"
-    
 test-integration: ## Run tests with the 'integration' build tag (requires external services; add //go:build integration to test files)
 	go test -tags integration -v -timeout 10m ./...
 
