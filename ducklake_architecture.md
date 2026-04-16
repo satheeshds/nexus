@@ -120,7 +120,7 @@ This gives you **ACID, time travel, schema evolution** for free.
 | **DuckDB as catalog DB** | Simple local deployment for dev/single-node setups, very fast local reads/writes, fewer moving parts than operating Postgres. | Embedded file-level locking limits concurrent writers/processes, weaker multi-tenant operational story for shared remote catalogs, fewer battle-tested HA/replication options. |
 | **SQLite as catalog DB** | Extremely lightweight, zero-admin local file, great for prototypes and CI smoke environments. | Single-writer bottleneck, file-lock contention under concurrent access, limited HA/replication and operational tooling versus Postgres. |
 
-**Summary:** DuckDB/SQLite can be attractive for local development and small single-node deployments, but PostgreSQL is generally the safer default for production multi-tenant catalogs where concurrency, durability, and operational maturity matter most.
+**Summary:** DuckDB/SQLite may be attractive in theory for local development and small single-node deployments, but this architecture currently assumes a **PostgreSQL-backed DuckLake catalog** (for example, tenant provisioning and `ATTACH 'ducklake:postgres:...'` are Postgres-specific). They should be read here as hypothetical/local-only alternatives, **not as supported catalog backends in the current product/implementation**. Using DuckDB or SQLite for the catalog in this system would require product and implementation changes, and may also depend on upstream DuckLake support.
 
 ---
 
