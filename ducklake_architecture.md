@@ -112,6 +112,16 @@ ATTACH 'ducklake:postgres:host=pg user=nexus password=xxx dbname=catalog'
 
 This gives you **ACID, time travel, schema evolution** for free.
 
+#### Catalog backend trade-offs (DuckDB/SQLite vs PostgreSQL)
+
+| Option | Pros | Cons |
+|---|---|---|
+| **PostgreSQL (current choice)** | Strong concurrency model (MVCC + WAL), good durability/backup tooling, mature operational ecosystem, predictable behavior for many tenants sharing one catalog service. | Requires running a separate database service and handling its operational overhead (HA, backups, monitoring). |
+| **DuckDB as catalog DB** | Simple local deployment for dev/single-node setups, very fast local reads/writes, fewer moving parts than operating Postgres. | Embedded file-level locking limits concurrent writers/processes, weaker multi-tenant operational story for shared remote catalogs, fewer battle-tested HA/replication options. |
+| **SQLite as catalog DB** | Extremely lightweight, zero-admin local file, great for prototypes and CI smoke environments. | Single-writer bottleneck, file-lock contention under concurrent access, limited HA/replication and operational tooling versus Postgres. |
+
+**Summary:** DuckDB/SQLite can be attractive for local development and small single-node deployments, but PostgreSQL is generally the safer default for production multi-tenant catalogs where concurrency, durability, and operational maturity matter most.
+
 ---
 
 ### 3. Compute Layer — Per-Tenant DuckDB Sessions
