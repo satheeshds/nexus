@@ -47,8 +47,8 @@ type Server struct {
 	adminAPIKey string
 	queryRunner TenantQueryRunner
 
-	// listTenantsFunc is used in tests to override catalog.ListTenants.
-	// If nil, the real catalog.DB method is used.
+	// listTenantsFunc is used in tests to override the CatalogStore.ListTenants call.
+	// If nil, the injected CatalogStore is used directly.
 	listTenantsFunc func(ctx context.Context) ([]catalog.Tenant, error)
 }
 
