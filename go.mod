@@ -1,9 +1,11 @@
 module github.com/satheeshds/nexus
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.2
 
 require (
-	github.com/duckdb/duckdb-go/v2 v2.5.0
+	github.com/duckdb/duckdb-go/v2 v2.10502.0
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/uuid v1.6.0
@@ -26,31 +28,12 @@ require (
 	github.com/KyleBanks/depth v1.2.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/apache/arrow-go/v18 v18.5.1 // indirect
-	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/errdefs v1.0.0 // indirect
-	github.com/containerd/errdefs/pkg v0.3.0 // indirect
-	github.com/containerd/log v0.1.0 // indirect
-	github.com/containerd/platforms v0.2.1 // indirect
-	github.com/cpuguy83/dockercfg v0.3.2 // indirect
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/distribution/reference v0.6.0 // indirect
-	github.com/docker/docker v28.5.2+incompatible // indirect
-	github.com/docker/go-connections v0.6.0 // indirect
-	github.com/docker/go-units v0.5.0 // indirect
-	github.com/duckdb/duckdb-go-bindings v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/darwin-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/darwin-arm64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64 v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/lib/linux-amd64 v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/lib/linux-arm64 v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/lib/windows-amd64 v0.10501.0 // indirect
-	github.com/duckdb/duckdb-go-bindings/linux-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/linux-arm64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go-bindings/windows-amd64 v0.1.21 // indirect
-	github.com/duckdb/duckdb-go/arrowmapping v0.0.22 // indirect
-	github.com/duckdb/duckdb-go/mapping v0.0.22 // indirect
+	github.com/duckdb/duckdb-go-bindings v0.10502.0 // indirect
+	github.com/duckdb/duckdb-go-bindings/lib/darwin-amd64 v0.10502.0 // indirect
+	github.com/duckdb/duckdb-go-bindings/lib/darwin-arm64 v0.10502.0 // indirect
+	github.com/duckdb/duckdb-go-bindings/lib/linux-amd64 v0.10502.0 // indirect
+	github.com/duckdb/duckdb-go-bindings/lib/linux-arm64 v0.10502.0 // indirect
+	github.com/duckdb/duckdb-go-bindings/lib/windows-amd64 v0.10502.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
