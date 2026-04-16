@@ -150,6 +150,7 @@ The following packages have unit tests that can be run without any external serv
 
 ---
 
+## License
 Distributed under the MIT License.
 
 > [!WARNING]
