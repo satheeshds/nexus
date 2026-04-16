@@ -44,7 +44,7 @@ type Pool struct {
 	poolCfg  config.PoolConfig
 }
 
-func New(catalog *catalog.DB, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
+func New(catalog catalogStore, pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, poolCfg config.PoolConfig) *Pool {
 	p := &Pool{
 		sessions: make(map[string]*Session),
 		catalog:  catalog,

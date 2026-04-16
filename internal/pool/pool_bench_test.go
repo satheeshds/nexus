@@ -3,6 +3,7 @@ package pool_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,9 +30,15 @@ func newTestPool(b *testing.B) *pool.Pool {
 	skipIfNoInfra(b)
 
 	host := os.Getenv("NEXUS_POSTGRES_HOST")
+	port := 5432
+	if p := os.Getenv("NEXUS_POSTGRES_PORT"); p != "" {
+		if v, err := strconv.Atoi(p); err == nil {
+			port = v
+		}
+	}
 	pgCfg := config.PostgresConfig{
 		Host:     host,
-		Port:     5432,
+		Port:     port,
 		User:     envOrDefault("NEXUS_POSTGRES_USER", "nexus"),
 		Password: envOrDefault("NEXUS_POSTGRES_PASSWORD", "changeme"),
 		DBName:   envOrDefault("NEXUS_POSTGRES_DBNAME", "lake_catalog"),
