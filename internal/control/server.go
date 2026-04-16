@@ -19,6 +19,20 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
+// CatalogStore is the subset of catalog.DB operations used by the control server.
+type CatalogStore interface {
+	GetTenantByEmail(ctx context.Context, email string) (*catalog.Tenant, error)
+	GetTenant(ctx context.Context, id string) (*catalog.Tenant, error)
+	ListTenants(ctx context.Context) ([]catalog.Tenant, error)
+	GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*catalog.ServiceAccount, error)
+}
+
+// TenantProvisioner is the subset of tenant.Provisioner operations used by the control server.
+type TenantProvisioner interface {
+	Register(ctx context.Context, req tenant.RegisterRequest) (*tenant.RegisterResponse, error)
+	Delete(ctx context.Context, tenantID string) error
+	RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error)
+}
 // TenantQueryRunner executes SQL statements against individual tenant DuckDB sessions.
 // Implement this interface (e.g. with *pool.Pool) to enable the admin query endpoint.
 type TenantQueryRunner interface {
@@ -27,18 +41,18 @@ type TenantQueryRunner interface {
 
 type Server struct {
 	router      *chi.Mux
-	provisioner *tenant.Provisioner
-	catalog     *catalog.DB
+	provisioner TenantProvisioner
+	catalog     CatalogStore
 	auth        *auth.Service
 	adminAPIKey string
 	queryRunner TenantQueryRunner
 
-	// listTenantsFunc is used in tests to override catalog.ListTenants.
-	// If nil, the real catalog.DB method is used.
+	// listTenantsFunc is used in tests to override the CatalogStore.ListTenants call.
+	// If nil, the injected CatalogStore is used directly.
 	listTenantsFunc func(ctx context.Context) ([]catalog.Tenant, error)
 }
 
-func NewServer(p *tenant.Provisioner, db *catalog.DB, a *auth.Service, adminAPIKey string, qr TenantQueryRunner) *Server {
+func NewServer(p TenantProvisioner, db CatalogStore, a *auth.Service, adminAPIKey string, qr TenantQueryRunner) *Server {
 	if qr == nil {
 		panic("control.NewServer: TenantQueryRunner must not be nil")
 	}
