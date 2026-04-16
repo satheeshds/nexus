@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspace:cached
+    env_file:
+      - ../.env
+    environment:
+      - NEXUS_POSTGRES_HOST=postgres
+      - NEXUS_POSTGRES_PORT=5432
+      - NEXUS_POSTGRES_USER=nexus
+      - NEXUS_POSTGRES_PASSWORD=changeme
+      - NEXUS_POSTGRES_DBNAME=lake_catalog
+      - NEXUS_MINIO_ENDPOINT=minio:9000
+      - NEXUS_MINIO_ACCESS_KEY=minioadmin
+      - NEXUS_MINIO_SECRET_KEY=changeme
+      - NEXUS_MINIO_BUCKET=lakehouse
+      - NEXUS_AUTH_JWT_SECRET=supersecretkey_change_in_production
+
+    # depends_on:
+    #   postgres:
+    #     condition: service_healthy
+    #   minio:
+    #     condition: service_healthy
+    command: sleep infinity
+
