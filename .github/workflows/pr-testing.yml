@@ -60,24 +60,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          max_retries=60
+          retry_interval=2
 
-          for _ in {1..60}; do
+          for _ in $(seq 1 "$max_retries"); do
             if curl -fsS http://localhost:8080/healthz >/dev/null; then
               break
             fi
-            sleep 2
+            sleep "$retry_interval"
           done
           curl -fsS http://localhost:8080/healthz >/dev/null
 
           register_response=$(curl -fsS -X POST http://localhost:8080/api/v1/register \
             -H 'Content-Type: application/json' \
             -d '{"org_name":"CI Tenant","email":"ci@example.com","password":"ci-password"}')
-          tenant_id=$(python -c 'import json,sys; print(json.loads(sys.stdin.read())["tenant_id"])' <<< "$register_response")
+          tenant_id=$(jq -r '.tenant_id // empty' <<< "$register_response")
+          if [[ -z "$tenant_id" ]]; then
+            echo "Failed to extract tenant_id from register response: $register_response"
+            exit 1
+          fi
 
           login_response=$(curl -fsS -X POST http://localhost:8080/api/v1/login \
             -H 'Content-Type: application/json' \
             -d '{"email":"ci@example.com","password":"ci-password"}')
-          token=$(python -c 'import json,sys; print(json.loads(sys.stdin.read())["token"])' <<< "$login_response")
+          token=$(jq -r '.token // empty' <<< "$login_response")
+          if [[ -z "$token" ]]; then
+            echo "Failed to extract token from login response: $login_response"
+            exit 1
+          fi
 
           go run ./cmd/loadtest \
             -dsn "postgres://${tenant_id}:${token}@localhost:5433/lake?sslmode=disable" \
