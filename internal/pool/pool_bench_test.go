@@ -11,10 +11,8 @@ import (
 	"github.com/satheeshds/nexus/internal/pool"
 )
 
-// stubCatalog is a minimal in-memory catalog.DB substitute.
-// It satisfies the unexported catalogStore interface used by pool.Pool via
-// the public *catalog.DB field in pool.New – but for pure lock-contention
-// benchmarks we create a real catalog.DB only when PostgreSQL is available.
+// These benchmarks use a real PostgreSQL-backed catalog.DB to construct the
+// pool and are skipped when the required infrastructure is not configured.
 
 // skipIfNoInfra skips a benchmark when NEXUS_POSTGRES_HOST is not set.
 func skipIfNoInfra(tb testing.TB) {
