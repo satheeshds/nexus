@@ -1,8 +1,8 @@
 .env
 
 # Binaries
-control
-gateway
+/control
+/gateway
 *.exe
 *.dll
 *.so
