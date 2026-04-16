@@ -107,14 +107,9 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
-	os.Setenv("NEXUS_POSTGRES_HOST", "pg.example.com")
-	os.Setenv("NEXUS_POSTGRES_USER", "testuser")
-	os.Setenv("NEXUS_MINIO_BUCKET", "my-bucket")
-	defer func() {
-		os.Unsetenv("NEXUS_POSTGRES_HOST")
-		os.Unsetenv("NEXUS_POSTGRES_USER")
-		os.Unsetenv("NEXUS_MINIO_BUCKET")
-	}()
+	t.Setenv("NEXUS_POSTGRES_HOST", "pg.example.com")
+	t.Setenv("NEXUS_POSTGRES_USER", "testuser")
+	t.Setenv("NEXUS_MINIO_BUCKET", "my-bucket")
 
 	cfg, err := config.Load()
 	if err != nil {
