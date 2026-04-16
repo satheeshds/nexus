@@ -64,6 +64,8 @@ jobs:
           retry_interval=2
           gateway_port=5433
           healthy=false
+          ci_email="ci-$(date +%s)@example.com"
+          ci_password="$(openssl rand -hex 16)"
 
           for _ in $(seq 1 "$max_retries"); do
             if curl -fsS http://localhost:8080/healthz >/dev/null; then
@@ -77,18 +79,27 @@ jobs:
             exit 1
           fi
 
+          register_payload=$(jq -n \
+            --arg org "CI Tenant" \
+            --arg email "$ci_email" \
+            --arg password "$ci_password" \
+            '{org_name: $org, email: $email, password: $password}')
           register_response=$(curl -fsS -X POST http://localhost:8080/api/v1/register \
             -H 'Content-Type: application/json' \
-            -d '{"org_name":"CI Tenant","email":"ci@example.com","password":"ci-password"}')
+            -d "$register_payload")
           tenant_id=$(jq -r '.tenant_id // empty' <<< "$register_response")
           if [[ -z "$tenant_id" ]]; then
             echo "Failed to extract tenant_id from register response"
             exit 1
           fi
 
+          login_payload=$(jq -n \
+            --arg email "$ci_email" \
+            --arg password "$ci_password" \
+            '{email: $email, password: $password}')
           login_response=$(curl -fsS -X POST http://localhost:8080/api/v1/login \
             -H 'Content-Type: application/json' \
-            -d '{"email":"ci@example.com","password":"ci-password"}')
+            -d "$login_payload")
           token=$(jq -r '.token // empty' <<< "$login_response")
           if [[ -z "$token" ]]; then
             echo "Failed to extract token from login response"
