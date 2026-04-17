@@ -22,7 +22,7 @@ COPY . .
 RUN /go/bin/swag init -g cmd/control/main.go --output docs
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -ldflags="-s -w -X 'main.commitSHA=${COMMIT_SHA}'" \
+    -ldflags="-s -w" \
     -o /bin/nexus-control \
     ./cmd/control
 
