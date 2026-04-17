@@ -5,7 +5,7 @@ DOCKER   ?= docker
 COMPOSE  ?= $(DOCKER) compose
 ENV_FILE ?= .env
 
-COMMIT_SHA := $(shell git rev-parse --short HEAD)
+COMMIT_SHA ?= $(or $(shell git rev-parse --short HEAD 2>/dev/null),unknown)
 
 export DOCKER_BUILDKIT ?= 1
 
