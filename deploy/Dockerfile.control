@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.26-bookworm AS builder
 
+ARG COMMIT_SHA=unknown
+
 WORKDIR /app
 
 # Install DuckDB build dependencies (required for CGO in tenant provisioner)
@@ -27,9 +29,16 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
+ARG COMMIT_SHA=unknown
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
+
+LABEL watchlog.commit-sha="${COMMIT_SHA}"
+LABEL watchlog.monitor="true"
+LABEL watchlog.service="nexus-control"
+LABEL watchlog.project-repo="satheeshds/nexus"
 
 COPY --from=builder /bin/nexus-control /usr/local/bin/nexus-control
 

@@ -5,6 +5,8 @@ DOCKER   ?= docker
 COMPOSE  ?= $(DOCKER) compose
 ENV_FILE ?= .env
 
+COMMIT_SHA ?= $(or $(shell git rev-parse --short HEAD 2>/dev/null),unknown)
+
 export DOCKER_BUILDKIT ?= 1
 
 BINARY_GATEWAY := bin/nexus-gateway
@@ -23,10 +25,10 @@ image: control-image gateway-image ## Build all Docker images
 #	$(DOCKER_COMPOSE) build
 
 control-image: ## Build nexus control image
-	$(DOCKER) build -f deploy/Dockerfile.control -t nexus-control .
+	$(DOCKER) build --build-arg COMMIT_SHA=$(COMMIT_SHA) -f deploy/Dockerfile.control -t nexus-control .
 
 gateway-image: ## Build nexus gateway image
-	$(DOCKER) build -f deploy/Dockerfile.gateway -t nexus-gateway .
+	$(DOCKER) build --build-arg COMMIT_SHA=$(COMMIT_SHA) -f deploy/Dockerfile.gateway -t nexus-gateway .
 
 push: ## Push all Docker images
 	@set -e; \
