@@ -1,6 +1,8 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.26-bookworm AS builder
 
+ARG COMMIT_SHA=unknown
+
 WORKDIR /app
 
 # Install DuckDB build dependencies (required for CGO)
@@ -14,16 +16,26 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X 'main.commitSHA=${COMMIT_SHA}'" \
     -o /bin/nexus-gateway \
     ./cmd/gateway
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
+ARG COMMIT_SHA=unknown
+
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
+
+LABEL watchlog.commit-sha="${COMMIT_SHA}"
+LABEL watchlog.monitor="true"
+LABEL watchlog.service="nexus-gateway"
+LABEL watchlog.project-repo="satheeshds/nexus"
+LABEL watchlog.linear-project-id="ccf1d782-3681-4ef4-94e9-c3127a2d9efe"
+LABEL watchlog.linear-team-id="d983982f-44e5-42f1-94fe-9655dceffddf"
 
 COPY --from=builder /bin/nexus-gateway /usr/local/bin/nexus-gateway
 
