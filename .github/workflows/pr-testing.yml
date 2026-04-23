@@ -1,0 +1,122 @@
+name: PR Testing
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test ./...
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run integration tests
+        run: go test -tags integration -v -timeout 10m ./...
+
+  load-test:
+    name: Load test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start stack
+        run: docker compose -f deploy/docker-compose.yml up -d postgres minio minio-init nexus-control nexus-gateway
+
+      - name: Run load test against gateway
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_retries=60
+          retry_interval=2
+          gateway_port=5433
+          healthy=false
+          test_tenant_email="ci-$(date +%s)@example.com"
+          test_tenant_password="$(openssl rand -hex 16)"
+
+          for _ in $(seq 1 "$max_retries"); do
+            if curl -fsS http://localhost:8080/healthz >/dev/null; then
+              healthy=true
+              break
+            fi
+            sleep "$retry_interval"
+          done
+          if [[ "$healthy" != "true" ]]; then
+            echo "Control plane health check failed after $max_retries attempts"
+            exit 1
+          fi
+
+          register_payload=$(jq -n \
+            --arg org "CI Tenant" \
+            --arg email "$test_tenant_email" \
+            --arg password "$test_tenant_password" \
+            '{org_name: $org, email: $email, password: $password}')
+          register_response=$(curl -fsS -X POST http://localhost:8080/api/v1/register \
+            -H 'Content-Type: application/json' \
+            -d "$register_payload")
+          tenant_id=$(jq -r '.tenant_id // empty' <<< "$register_response")
+          if [[ -z "$tenant_id" ]]; then
+            echo "Failed to extract tenant_id from register response"
+            exit 1
+          fi
+
+          login_payload=$(jq -n \
+            --arg email "$test_tenant_email" \
+            --arg password "$test_tenant_password" \
+            '{email: $email, password: $password}')
+          login_response=$(curl -fsS -X POST http://localhost:8080/api/v1/login \
+            -H 'Content-Type: application/json' \
+            -d "$login_payload")
+          token=$(jq -r '.token // empty' <<< "$login_response")
+          if [[ -z "$token" ]]; then
+            echo "Failed to extract token from login response"
+            exit 1
+          fi
+
+          go run ./cmd/loadtest \
+            -dsn "postgres://${tenant_id}:${token}@localhost:${gateway_port}/lake?sslmode=disable" \
+            -concurrency 2 \
+            -duration 10s \
+            -warmup 2s \
+            -query "SELECT 1"
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose -f deploy/docker-compose.yml logs --no-color | tail -n 300
+
+      - name: Stop stack
+        if: always()
+        run: docker compose -f deploy/docker-compose.yml down -v
