@@ -340,7 +340,7 @@ func (p *Provisioner) decryptAPIKey(encoded string) (string, error) {
 
 func deriveEncryptionKey(secret string) [32]byte {
 	if len(secret) < 16 {
-		panic("service account key encryption secret must be at least 16 characters")
+		panic("service account key encryption secret must be at least 16 bytes")
 	}
 
 	var key [32]byte
