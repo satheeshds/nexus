@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewProvisioner(t *testing.T) {
-	p := NewProvisioner(nil, nil, config.PostgresConfig{}, config.MinIOConfig{}, config.DuckLakeConfig{})
+	p := NewProvisioner(nil, nil, config.PostgresConfig{}, config.MinIOConfig{}, config.DuckLakeConfig{}, 0, "test-secret-at-least-16")
 	if p == nil {
 		t.Fatal("NewProvisioner() returned nil")
 	}
@@ -114,7 +114,7 @@ func TestGenerateAPIKey_UniquePerCall(t *testing.T) {
 
 func TestRegister_PasswordRequired(t *testing.T) {
 	// Provisioner with nil deps is fine here: password validation runs before any db call.
-	p := NewProvisioner(nil, nil, config.PostgresConfig{}, config.MinIOConfig{}, config.DuckLakeConfig{})
+	p := NewProvisioner(nil, nil, config.PostgresConfig{}, config.MinIOConfig{}, config.DuckLakeConfig{}, 0, "test-secret-at-least-16")
 	_, err := p.Register(context.Background(), RegisterRequest{
 		OrgName: "Acme Corp",
 		Email:   "admin@acme.com",

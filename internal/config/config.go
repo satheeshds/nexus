@@ -53,8 +53,8 @@ func (p PostgresConfig) URL() string {
 
 type MinIOConfig struct {
 	Endpoint     string `mapstructure:"endpoint"`
-	AccessKey    string `mapstructure:"access_key"`    // Admin credentials for provisioning tenant service accounts
-	SecretKey    string `mapstructure:"secret_key"`    // Admin credentials for provisioning tenant service accounts
+	AccessKey    string `mapstructure:"access_key"` // Admin credentials for provisioning tenant service accounts
+	SecretKey    string `mapstructure:"secret_key"` // Admin credentials for provisioning tenant service accounts
 	Bucket       string `mapstructure:"bucket"`
 	UseSSL       bool   `mapstructure:"use_ssl"`
 	UsePathStyle bool   `mapstructure:"use_path_style"`
@@ -66,9 +66,11 @@ type DuckLakeConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret     string        `mapstructure:"jwt_secret"`
-	TokenDuration time.Duration `mapstructure:"token_duration"`
-	AdminAPIKey   string        `mapstructure:"admin_api_key"` // For platform operator endpoints
+	JWTSecret                         string        `mapstructure:"jwt_secret"`
+	TokenDuration                     time.Duration `mapstructure:"token_duration"`
+	AdminAPIKey                       string        `mapstructure:"admin_api_key"` // For platform operator endpoints
+	ServiceAccountRotationTTL         time.Duration `mapstructure:"service_account_rotation_ttl"`
+	ServiceAccountKeyEncryptionSecret string        `mapstructure:"service_account_key_encryption_secret"`
 }
 
 type PoolConfig struct {
@@ -103,6 +105,7 @@ func Load() (*Config, error) {
 	v.SetDefault("ducklake.tenant_base_path", "tenants")
 	v.SetDefault("auth.jwt_secret", "supersecretkey_change_in_production")
 	v.SetDefault("auth.token_duration", "24h")
+	v.SetDefault("auth.service_account_rotation_ttl", "10m")
 	v.SetDefault("pool.max_idle_sessions", 1)
 	v.SetDefault("pool.session_ttl", "30m")
 	v.SetDefault("pool.eviction_interval", "5m")
@@ -131,6 +134,8 @@ func Load() (*Config, error) {
 	v.BindEnv("minio.bucket", "NEXUS_MINIO_BUCKET")
 	v.BindEnv("auth.jwt_secret", "NEXUS_AUTH_JWT_SECRET")
 	v.BindEnv("auth.admin_api_key", "NEXUS_AUTH_ADMIN_API_KEY")
+	v.BindEnv("auth.service_account_rotation_ttl", "NEXUS_AUTH_SERVICE_ACCOUNT_ROTATION_TTL")
+	v.BindEnv("auth.service_account_key_encryption_secret", "NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET")
 
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

@@ -109,22 +109,31 @@ func (db *DB) DeleteTenant(ctx context.Context, id string) error {
 // Service accounts are used by internal services (e.g., data ingestion pipelines)
 // to access the tenant's data namespace.
 type ServiceAccount struct {
-	ID             string    `json:"id"`
-	TenantID       string    `json:"tenant_id"`
-	S3Prefix       string    `json:"s3_prefix"`
-	PGSchema       string    `json:"pg_schema"`
-	MinioAccessKey string    `json:"-"` // stored for deprovisioning; never exposed in API responses
-	MinioSecretKey string    `json:"-"` // stored for session initialization; never exposed in API responses
-	APIKeyHash     string    `json:"-"` // bcrypt hash; never exposed
-	CreatedAt      time.Time `json:"created_at"`
+	ID               string    `json:"id"`
+	TenantID         string    `json:"tenant_id"`
+	S3Prefix         string    `json:"s3_prefix"`
+	PGSchema         string    `json:"pg_schema"`
+	MinioAccessKey   string    `json:"-"` // stored for deprovisioning; never exposed in API responses
+	MinioSecretKey   string    `json:"-"` // stored for session initialization; never exposed in API responses
+	APIKeyHash       string    `json:"-"` // bcrypt hash; never exposed
+	APIKeyCiphertext string    `json:"-"` // encrypted key used for TTL-based key reuse; never exposed
+	APIKeyRotatedAt  time.Time `json:"-"`
+	CreatedAt        time.Time `json:"created_at"`
 }
 
 // InsertServiceAccount stores a new service account record.
 func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
+	rotatedAt := sa.APIKeyRotatedAt
+	if rotatedAt.IsZero() {
+		rotatedAt = sa.CreatedAt
+	}
+	if rotatedAt.IsZero() {
+		rotatedAt = time.Now().UTC()
+	}
 	_, err := db.pool.Exec(ctx, `
-		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.MinioSecretKey, sa.APIKeyHash, sa.CreatedAt)
+		INSERT INTO service_accounts (id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, api_key_ciphertext, api_key_rotated_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, sa.ID, sa.TenantID, sa.S3Prefix, sa.PGSchema, sa.MinioAccessKey, sa.MinioSecretKey, sa.APIKeyHash, sa.APIKeyCiphertext, rotatedAt, sa.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert service account: %w", err)
 	}
@@ -134,11 +143,11 @@ func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error
 // GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
 func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
 		FROM service_accounts WHERE tenant_id = $1
 	`, tenantID)
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.APIKeyCiphertext, &sa.APIKeyRotatedAt, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
 		}
@@ -150,11 +159,11 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 // GetServiceAccount retrieves a service account by its ID.
 func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
 	row := db.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, created_at
+		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
 		FROM service_accounts WHERE id = $1
 	`, id)
 	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.CreatedAt); err != nil {
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.APIKeyCiphertext, &sa.APIKeyRotatedAt, &sa.CreatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
 		}
@@ -163,12 +172,14 @@ func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount
 	return &sa, nil
 }
 
-// UpdateServiceAccountKeyHash replaces the stored bcrypt hash of the service account API key.
+// UpdateServiceAccountKey replaces the stored service account API key metadata.
 // Call this after generating a new key during rotation.
-func (db *DB) UpdateServiceAccountKeyHash(ctx context.Context, tenantID, newHash string) error {
+func (db *DB) UpdateServiceAccountKey(ctx context.Context, tenantID, newHash, encryptedKey string, rotatedAt time.Time) error {
 	tag, err := db.pool.Exec(ctx, `
-		UPDATE service_accounts SET api_key_hash = $1 WHERE tenant_id = $2
-	`, newHash, tenantID)
+		UPDATE service_accounts
+		SET api_key_hash = $1, api_key_ciphertext = $2, api_key_rotated_at = $3
+		WHERE tenant_id = $4
+	`, newHash, encryptedKey, rotatedAt, tenantID)
 	if err != nil {
 		return fmt.Errorf("update api_key_hash for tenant %q: %w", tenantID, err)
 	}

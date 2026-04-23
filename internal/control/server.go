@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -31,8 +32,9 @@ type CatalogStore interface {
 type TenantProvisioner interface {
 	Register(ctx context.Context, req tenant.RegisterRequest) (*tenant.RegisterResponse, error)
 	Delete(ctx context.Context, tenantID string) error
-	RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error)
+	RotateServiceAccountKey(ctx context.Context, tenantID string, hardReset bool) (string, string, error)
 }
+
 // TenantQueryRunner executes SQL statements against individual tenant DuckDB sessions.
 // Implement this interface (e.g. with *pool.Pool) to enable the admin query endpoint.
 type TenantQueryRunner interface {
@@ -365,10 +367,22 @@ func (s *Server) handleGetServiceAccount(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Request) {
+	type rotateRequest struct {
+		HardReset bool `json:"hard_reset"`
+	}
+
 	tenantID := chi.URLParam(r, "id")
 	if tenantID == "" {
 		writeError(w, http.StatusBadRequest, "tenant ID is required")
 		return
+	}
+
+	req := rotateRequest{}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
 	}
 
 	// Ensure the customer tenant exists, for consistency with handleGetServiceAccount.
@@ -376,7 +390,7 @@ func (s *Server) handleRotateServiceAccountKey(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
-	newKey, serviceID, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID)
+	newKey, serviceID, err := s.provisioner.RotateServiceAccountKey(r.Context(), tenantID, req.HardReset)
 	if err != nil {
 		slog.Error("rotate service account key", "tenant", tenantID, "err", err)
 		if errors.Is(err, catalog.ErrNotFound) {

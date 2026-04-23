@@ -13,7 +13,6 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
-	"github.com/satheeshds/nexus/migrations"
 	"github.com/satheeshds/nexus/internal/auth"
 	"github.com/satheeshds/nexus/internal/catalog"
 	"github.com/satheeshds/nexus/internal/config"
@@ -21,6 +20,7 @@ import (
 	"github.com/satheeshds/nexus/internal/pool"
 	"github.com/satheeshds/nexus/internal/storage"
 	"github.com/satheeshds/nexus/internal/tenant"
+	"github.com/satheeshds/nexus/migrations"
 )
 
 // @title Nexus Control Plane API
@@ -80,11 +80,17 @@ func main() {
 
 	// Auth service
 	authSvc := auth.NewService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
+	if cfg.Auth.ServiceAccountKeyEncryptionSecret == "" {
+		slog.Error("missing service account key encryption secret", "env", "NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET")
+		os.Exit(1)
+	}
 
 	// Tenant provisioner
 	provisioner := tenant.NewProvisioner(
 		catalogDB, storageClient,
 		cfg.Postgres, cfg.MinIO, cfg.DuckLake,
+		cfg.Auth.ServiceAccountRotationTTL,
+		cfg.Auth.ServiceAccountKeyEncryptionSecret,
 	)
 
 	// Session pool – used by the admin query endpoint to execute SQL across tenants

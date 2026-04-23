@@ -25,7 +25,15 @@ func registerTestTenant(t *testing.T, catalogDB *catalog.DB, pg *testutil.Postgr
 	if err := storageClient.EnsureBucket(ctx); err != nil {
 		t.Fatalf("ensure bucket: %v", err)
 	}
-	p := tenant.NewProvisioner(catalogDB, storageClient, pg.Config, minio.Config, config.DuckLakeConfig{TenantBasePath: "tenants"})
+	p := tenant.NewProvisioner(
+		catalogDB,
+		storageClient,
+		pg.Config,
+		minio.Config,
+		config.DuckLakeConfig{TenantBasePath: "tenants"},
+		10*time.Minute,
+		"integration-test-secret",
+	)
 	resp, err := p.Register(ctx, tenant.RegisterRequest{
 		OrgName:  "Pool Test Co",
 		Email:    email,
