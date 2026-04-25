@@ -75,11 +75,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
+// skipPathLogger returns a middleware that applies chi's Logger to every
+// request whose path does not match one of the provided skip patterns.
+// This preserves the original Logger→Recoverer ordering so that panics in
+// handlers are still captured and logged correctly.
+func skipPathLogger(skip ...string) func(http.Handler) http.Handler {
+	skipSet := make(map[string]struct{}, len(skip))
+	for _, p := range skip {
+		skipSet[p] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		logger := middleware.Logger(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, skipped := skipSet[r.URL.Path]; skipped {
+				next.ServeHTTP(w, r)
+				return
+			}
+			logger.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *Server) buildRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
+	// Logger wraps Recoverer to preserve original ordering; /healthz is silenced.
+	r.Use(skipPathLogger("/healthz"))
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", s.handleHealth)
