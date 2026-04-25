@@ -170,12 +170,16 @@ func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount
 }
 
 func (db *DB) queryServiceAccountByField(ctx context.Context, field, arg string) (*ServiceAccount, error) {
+	var query string
 	switch field {
-	case "id", "tenant_id":
-		return db.querySingleServiceAccount(ctx, serviceAccountSelectQuery+" WHERE "+field+" = $1", arg)
+	case "id":
+		query = serviceAccountSelectQuery + " WHERE id = $1"
+	case "tenant_id":
+		query = serviceAccountSelectQuery + " WHERE tenant_id = $1"
 	default:
 		return nil, fmt.Errorf("unsupported service account lookup field %q", field)
 	}
+	return db.querySingleServiceAccount(ctx, query, arg)
 }
 
 func (db *DB) querySingleServiceAccount(ctx context.Context, query string, arg string) (*ServiceAccount, error) {
