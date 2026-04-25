@@ -80,6 +80,14 @@ func main() {
 
 	// Auth service
 	authSvc := auth.NewService(cfg.Auth.JWTSecret, cfg.Auth.TokenDuration)
+	if cfg.Auth.ServiceAccountKeyEncryptionSecret == "" {
+		slog.Error("missing service account key encryption secret", "env", "NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET")
+		os.Exit(1)
+	}
+	if len(cfg.Auth.ServiceAccountKeyEncryptionSecret) < 16 {
+		slog.Error("invalid service account key encryption secret", "reason", "must be at least 16 bytes", "env", "NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET")
+		os.Exit(1)
+	}
 
 	// Tenant provisioner
 	provisioner, err := tenant.NewProvisioner(
