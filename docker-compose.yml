@@ -84,7 +84,7 @@ services:
       NEXUS_AUTH_ADMIN_API_KEY: ${ADMIN_API_KEY}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
 

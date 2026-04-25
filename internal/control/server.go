@@ -77,34 +77,40 @@ func (s *Server) buildRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Health check – no request/response logging to avoid noise.
 	r.Get("/healthz", s.handleHealth)
+
+	// All other routes are logged.
 	r.Group(func(r chi.Router) {
-		r.Use(s.adminMiddleware)
-		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
-	})
+		r.Use(middleware.Logger)
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Public
-		r.Post("/register", s.handleRegister)
-		r.Post("/login", s.handleLogin)
-
-		// Authenticated (JWT) - currently nothing here as tenant info moved to admin
-		r.Group(func(r chi.Router) {
-			r.Use(s.jwtMiddleware)
-		})
-
-		// Admin endpoints (X-Admin-API-Key)
 		r.Group(func(r chi.Router) {
 			r.Use(s.adminMiddleware)
-			r.Get("/admin/tenants", s.handleListTenants)
-			r.Get("/admin/tenants/{id}", s.handleGetTenant)
-			r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
-			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
-			r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
-			r.Post("/admin/query", s.handleAdminQuery)
+			r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+		})
+
+		r.Route("/api/v1", func(r chi.Router) {
+			// Public
+			r.Post("/register", s.handleRegister)
+			r.Post("/login", s.handleLogin)
+
+			// Authenticated (JWT) - currently nothing here as tenant info moved to admin
+			r.Group(func(r chi.Router) {
+				r.Use(s.jwtMiddleware)
+			})
+
+			// Admin endpoints (X-Admin-API-Key)
+			r.Group(func(r chi.Router) {
+				r.Use(s.adminMiddleware)
+				r.Get("/admin/tenants", s.handleListTenants)
+				r.Get("/admin/tenants/{id}", s.handleGetTenant)
+				r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
+				r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
+				r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
+				r.Post("/admin/query", s.handleAdminQuery)
+			})
 		})
 	})
 
