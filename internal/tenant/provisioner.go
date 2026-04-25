@@ -338,15 +338,15 @@ func (p *Provisioner) decryptAPIKey(encoded string) (string, error) {
 	return string(plain), nil
 }
 
-func deriveEncryptionKey(secret string) [32]byte {
+func deriveEncryptionKey(secret string) ([32]byte, error) {
 	if len(secret) < 16 {
-		panic("service account key encryption secret must be at least 16 bytes")
+		return [32]byte{}, fmt.Errorf("service account key encryption secret must be at least 16 bytes")
 	}
 
 	var key [32]byte
 	reader := hkdf.New(sha256.New, []byte(secret), nil, []byte("nexus-service-account-api-key-encryption"))
 	if _, err := io.ReadFull(reader, key[:]); err != nil {
-		panic(fmt.Errorf("failed to derive encryption key during initialization: %w", err))
+		return [32]byte{}, fmt.Errorf("failed to derive encryption key during initialization: %w", err)
 	}
-	return key
+	return key, nil
 }
