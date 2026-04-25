@@ -80,6 +80,8 @@ services:
       NEXUS_MINIO_BUCKET:      ${LAKEHOUSE_BUCKET:-lakehouse}
       NEXUS_AUTH_JWT_SECRET:   ${JWT_SECRET:-supersecretkey_change_in_production}
       NEXUS_AUTH_ADMIN_API_KEY: ${ADMIN_API_KEY:-changeme_admin}
+      NEXUS_AUTH_SERVICE_ACCOUNT_ROTATION_TTL: ${SERVICE_ACCOUNT_ROTATION_TTL:-10m}
+      NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET: ${SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET:-supersecretkey_change_in_production_service_account_key}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 10s

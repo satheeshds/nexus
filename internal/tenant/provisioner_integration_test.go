@@ -26,7 +26,11 @@ func newProvisioner(t *testing.T, catalogDB *catalog.DB, pg *testutil.PostgresCo
 		t.Fatalf("ensure bucket: %v", err)
 	}
 	dlCfg := config.DuckLakeConfig{TenantBasePath: "tenants"}
-	return tenant.NewProvisioner(catalogDB, storageClient, pg.Config, minio.Config, dlCfg, 10*time.Minute, "integration-test-secret")
+	p, err := tenant.NewProvisioner(catalogDB, storageClient, pg.Config, minio.Config, dlCfg, 10*time.Minute, "integration-test-secret")
+	if err != nil {
+		t.Fatalf("create provisioner: %v", err)
+	}
+	return p
 }
 
 // TestProvisioner_Register verifies that registering a new tenant provisions

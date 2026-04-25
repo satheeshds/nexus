@@ -54,11 +54,14 @@ func NewProvisioner(
 	dlCfg config.DuckLakeConfig,
 	rotationTTL time.Duration,
 	keyEncryptionSecret string,
-) *Provisioner {
+) (*Provisioner, error) {
 	if rotationTTL <= 0 {
 		rotationTTL = 10 * time.Minute
 	}
-	key := deriveEncryptionKey(keyEncryptionSecret)
+	key, err := deriveEncryptionKey(keyEncryptionSecret)
+	if err != nil {
+		return nil, err
+	}
 	return &Provisioner{
 		db:               db,
 		store:            store,
@@ -67,7 +70,7 @@ func NewProvisioner(
 		dlCfg:            dlCfg,
 		rotationTTL:      rotationTTL,
 		keyEncryptionKey: key,
-	}
+	}, nil
 }
 
 // Register provisions a new customer tenant end-to-end.

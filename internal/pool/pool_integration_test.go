@@ -25,7 +25,7 @@ func registerTestTenant(t *testing.T, catalogDB *catalog.DB, pg *testutil.Postgr
 	if err := storageClient.EnsureBucket(ctx); err != nil {
 		t.Fatalf("ensure bucket: %v", err)
 	}
-	p := tenant.NewProvisioner(
+	p, err := tenant.NewProvisioner(
 		catalogDB,
 		storageClient,
 		pg.Config,
@@ -34,6 +34,9 @@ func registerTestTenant(t *testing.T, catalogDB *catalog.DB, pg *testutil.Postgr
 		10*time.Minute,
 		"integration-test-secret",
 	)
+	if err != nil {
+		t.Fatalf("create provisioner: %v", err)
+	}
 	resp, err := p.Register(ctx, tenant.RegisterRequest{
 		OrgName:  "Pool Test Co",
 		Email:    email,
