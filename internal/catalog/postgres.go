@@ -142,32 +142,39 @@ func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error
 
 // GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
 func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
-	row := db.pool.QueryRow(ctx, `
+	sa, err := db.queryServiceAccount(ctx, `
 		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
 		FROM service_accounts WHERE tenant_id = $1
 	`, tenantID)
-	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.APIKeyCiphertext, &sa.APIKeyRotatedAt, &sa.CreatedAt); err != nil {
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
 		}
 		return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, err)
 	}
-	return &sa, nil
+	return sa, nil
 }
 
 // GetServiceAccount retrieves a service account by its ID.
 func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
-	row := db.pool.QueryRow(ctx, `
+	sa, err := db.queryServiceAccount(ctx, `
 		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
 		FROM service_accounts WHERE id = $1
 	`, id)
-	var sa ServiceAccount
-	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.APIKeyCiphertext, &sa.APIKeyRotatedAt, &sa.CreatedAt); err != nil {
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
 		}
 		return nil, fmt.Errorf("get service account %q: %w", id, err)
+	}
+	return sa, nil
+}
+
+func (db *DB) queryServiceAccount(ctx context.Context, query string, arg any) (*ServiceAccount, error) {
+	row := db.pool.QueryRow(ctx, query, arg)
+	var sa ServiceAccount
+	if err := row.Scan(&sa.ID, &sa.TenantID, &sa.S3Prefix, &sa.PGSchema, &sa.MinioAccessKey, &sa.MinioSecretKey, &sa.APIKeyHash, &sa.APIKeyCiphertext, &sa.APIKeyRotatedAt, &sa.CreatedAt); err != nil {
+		return nil, err
 	}
 	return &sa, nil
 }
