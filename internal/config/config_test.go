@@ -49,7 +49,8 @@ func TestLoad_Defaults(t *testing.T) {
 		"NEXUS_POSTGRES_DBNAME", "NEXUS_MINIO_ENDPOINT",
 		"NEXUS_MINIO_ACCESS_KEY", "NEXUS_MINIO_SECRET_KEY",
 		"NEXUS_MINIO_BUCKET", "NEXUS_AUTH_JWT_SECRET",
-		"NEXUS_AUTH_ADMIN_API_KEY",
+		"NEXUS_AUTH_ADMIN_API_KEY", "NEXUS_AUTH_SERVICE_ACCOUNT_ROTATION_TTL",
+		"NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET",
 	}
 	for _, k := range unset {
 		prev, ok := os.LookupEnv(k)
@@ -103,6 +104,12 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.Pool.MaxIdleSessions != 1 {
 		t.Errorf("Pool.MaxIdleSessions = %d, want 1", cfg.Pool.MaxIdleSessions)
+	}
+	if cfg.Auth.ServiceAccountRotationTTL <= 0 {
+		t.Errorf("Auth.ServiceAccountRotationTTL = %v, want > 0", cfg.Auth.ServiceAccountRotationTTL)
+	}
+	if cfg.Auth.ServiceAccountKeyEncryptionSecret != "" {
+		t.Errorf("Auth.ServiceAccountKeyEncryptionSecret = %q, want empty by default", cfg.Auth.ServiceAccountKeyEncryptionSecret)
 	}
 }
 

@@ -153,14 +153,16 @@ func TestCatalog_ServiceAccountCRUD(t *testing.T) {
 	}
 
 	sa := catalog.ServiceAccount{
-		ID:             "sa_tenant_01_svc",
-		TenantID:       tenant.ID,
-		S3Prefix:       tenant.S3Prefix,
-		PGSchema:       tenant.PGSchema,
-		MinioAccessKey: "AKIATEST123",
-		MinioSecretKey: "secretkey123",
-		APIKeyHash:     "$2a$10$fakehashfortest",
-		CreatedAt:      time.Now().UTC().Truncate(time.Second),
+		ID:               "sa_tenant_01_svc",
+		TenantID:         tenant.ID,
+		S3Prefix:         tenant.S3Prefix,
+		PGSchema:         tenant.PGSchema,
+		MinioAccessKey:   "AKIATEST123",
+		MinioSecretKey:   "secretkey123",
+		APIKeyHash:       "$2a$10$fakehashfortest",
+		APIKeyCiphertext: "ciphertextfortest",
+		APIKeyRotatedAt:  time.Now().UTC().Truncate(time.Second),
+		CreatedAt:        time.Now().UTC().Truncate(time.Second),
 	}
 
 	t.Run("InsertServiceAccount", func(t *testing.T) {
@@ -186,6 +188,9 @@ func TestCatalog_ServiceAccountCRUD(t *testing.T) {
 		if got.MinioSecretKey != sa.MinioSecretKey {
 			t.Errorf("MinioSecretKey: want %q got %q", sa.MinioSecretKey, got.MinioSecretKey)
 		}
+		if got.APIKeyCiphertext != sa.APIKeyCiphertext {
+			t.Errorf("APIKeyCiphertext: want %q got %q", sa.APIKeyCiphertext, got.APIKeyCiphertext)
+		}
 	})
 
 	t.Run("GetServiceAccountByTenantID", func(t *testing.T) {
@@ -205,10 +210,12 @@ func TestCatalog_ServiceAccountCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("UpdateServiceAccountKeyHash", func(t *testing.T) {
+	t.Run("UpdateServiceAccountKey", func(t *testing.T) {
 		newHash := "$2a$10$newhashfortest"
-		if err := db.UpdateServiceAccountKeyHash(ctx, tenant.ID, newHash); err != nil {
-			t.Fatalf("UpdateServiceAccountKeyHash: %v", err)
+		newCiphertext := "newciphertext"
+		newRotatedAt := time.Now().UTC().Truncate(time.Second)
+		if err := db.UpdateServiceAccountKey(ctx, tenant.ID, newHash, newCiphertext, newRotatedAt); err != nil {
+			t.Fatalf("UpdateServiceAccountKey: %v", err)
 		}
 		got, err := db.GetServiceAccount(ctx, sa.ID)
 		if err != nil {
@@ -217,10 +224,16 @@ func TestCatalog_ServiceAccountCRUD(t *testing.T) {
 		if got.APIKeyHash != newHash {
 			t.Errorf("APIKeyHash: want %q got %q", newHash, got.APIKeyHash)
 		}
+		if got.APIKeyCiphertext != newCiphertext {
+			t.Errorf("APIKeyCiphertext: want %q got %q", newCiphertext, got.APIKeyCiphertext)
+		}
+		if !got.APIKeyRotatedAt.Equal(newRotatedAt) {
+			t.Errorf("APIKeyRotatedAt: want %v got %v", newRotatedAt, got.APIKeyRotatedAt)
+		}
 	})
 
-	t.Run("UpdateServiceAccountKeyHash_NotFound", func(t *testing.T) {
-		err := db.UpdateServiceAccountKeyHash(ctx, "nonexistent_tenant", "hash")
+	t.Run("UpdateServiceAccountKey_NotFound", func(t *testing.T) {
+		err := db.UpdateServiceAccountKey(ctx, "nonexistent_tenant", "hash", "plain", time.Now())
 		if !errors.Is(err, catalog.ErrNotFound) {
 			t.Errorf("expected ErrNotFound, got %v", err)
 		}

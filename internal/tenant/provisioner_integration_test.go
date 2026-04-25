@@ -6,12 +6,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/satheeshds/nexus/internal/catalog"
+	"github.com/satheeshds/nexus/internal/config"
 	"github.com/satheeshds/nexus/internal/storage"
 	"github.com/satheeshds/nexus/internal/tenant"
 	"github.com/satheeshds/nexus/internal/testutil"
-	"github.com/satheeshds/nexus/internal/config"
 )
 
 func newProvisioner(t *testing.T, catalogDB *catalog.DB, pg *testutil.PostgresContainer, minio *testutil.MinIOContainer) *tenant.Provisioner {
@@ -25,7 +26,11 @@ func newProvisioner(t *testing.T, catalogDB *catalog.DB, pg *testutil.PostgresCo
 		t.Fatalf("ensure bucket: %v", err)
 	}
 	dlCfg := config.DuckLakeConfig{TenantBasePath: "tenants"}
-	return tenant.NewProvisioner(catalogDB, storageClient, pg.Config, minio.Config, dlCfg)
+	p, err := tenant.NewProvisioner(catalogDB, storageClient, pg.Config, minio.Config, dlCfg, 10*time.Minute, "integration-test-secret")
+	if err != nil {
+		t.Fatalf("create provisioner: %v", err)
+	}
+	return p
 }
 
 // TestProvisioner_Register verifies that registering a new tenant provisions
@@ -169,7 +174,7 @@ func TestProvisioner_RotateServiceAccountKey(t *testing.T) {
 	originalHash := saOriginal.APIKeyHash
 
 	// Rotate the key.
-	newKey, serviceID, err := p.RotateServiceAccountKey(ctx, resp.TenantID)
+	newKey, serviceID, err := p.RotateServiceAccountKey(ctx, resp.TenantID, true)
 	if err != nil {
 		t.Fatalf("RotateServiceAccountKey: %v", err)
 	}
@@ -190,6 +195,46 @@ func TestProvisioner_RotateServiceAccountKey(t *testing.T) {
 	}
 	if saUpdated.APIKeyHash == "" {
 		t.Error("expected non-empty api_key_hash after rotation")
+	}
+}
+
+// TestProvisioner_RotateServiceAccountKey_TTLReuse verifies the same key is returned
+// when rotation is requested within the TTL window, unless hard_reset is true.
+func TestProvisioner_RotateServiceAccountKey_TTLReuse(t *testing.T) {
+	testutil.CheckDuckDBExtensionsAvailable(t)
+	pg := testutil.StartPostgres(t)
+	minio := testutil.StartMinIO(t)
+	catalogDB := testutil.NewCatalogDB(t, pg)
+	p := newProvisioner(t, catalogDB, pg, minio)
+	ctx := context.Background()
+
+	resp, err := p.Register(ctx, tenant.RegisterRequest{
+		OrgName:  "Rotate TTL Corp",
+		Email:    "rotate-ttl@integration.test",
+		Password: "password",
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	key1, _, err := p.RotateServiceAccountKey(ctx, resp.TenantID, true)
+	if err != nil {
+		t.Fatalf("RotateServiceAccountKey hard reset 1: %v", err)
+	}
+	key2, _, err := p.RotateServiceAccountKey(ctx, resp.TenantID, false)
+	if err != nil {
+		t.Fatalf("RotateServiceAccountKey within ttl: %v", err)
+	}
+	if key1 != key2 {
+		t.Errorf("expected same key within ttl; got %q and %q", key1, key2)
+	}
+
+	key3, _, err := p.RotateServiceAccountKey(ctx, resp.TenantID, true)
+	if err != nil {
+		t.Fatalf("RotateServiceAccountKey hard reset 2: %v", err)
+	}
+	if key3 == key2 {
+		t.Error("expected hard reset to rotate key even within ttl")
 	}
 }
 

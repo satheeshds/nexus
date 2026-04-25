@@ -76,7 +76,7 @@ func (m *mockCatalog) GetServiceAccountByTenantID(_ context.Context, tenantID st
 type mockProvisioner struct {
 	registerFn func(ctx context.Context, req tenant.RegisterRequest) (*tenant.RegisterResponse, error)
 	deleteFn   func(ctx context.Context, tenantID string) error
-	rotateFn   func(ctx context.Context, tenantID string) (string, string, error)
+	rotateFn   func(ctx context.Context, tenantID string, hardReset bool) (string, string, error)
 }
 
 func (m *mockProvisioner) Register(ctx context.Context, req tenant.RegisterRequest) (*tenant.RegisterResponse, error) {
@@ -93,9 +93,9 @@ func (m *mockProvisioner) Delete(ctx context.Context, tenantID string) error {
 	return nil
 }
 
-func (m *mockProvisioner) RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error) {
+func (m *mockProvisioner) RotateServiceAccountKey(ctx context.Context, tenantID string, hardReset bool) (string, string, error) {
 	if m.rotateFn != nil {
-		return m.rotateFn(ctx, tenantID)
+		return m.rotateFn(ctx, tenantID, hardReset)
 	}
 	return "newkey", "svc-id", nil
 }
@@ -532,7 +532,10 @@ func TestHandleRotateServiceAccountKey_Success(t *testing.T) {
 	cat := newMockCatalog()
 	cat.addTenant(&catalog.Tenant{ID: "tenant-1"})
 	prov := &mockProvisioner{
-		rotateFn: func(_ context.Context, tenantID string) (string, string, error) {
+		rotateFn: func(_ context.Context, tenantID string, hardReset bool) (string, string, error) {
+			if hardReset {
+				t.Error("hardReset = true, want false")
+			}
 			return "newplainkey", "tenant-1_svc", nil
 		},
 	}
@@ -577,7 +580,7 @@ func TestHandleRotateServiceAccountKey_ServiceAccountNotFound(t *testing.T) {
 	cat := newMockCatalog()
 	cat.addTenant(&catalog.Tenant{ID: "tenant-1"})
 	prov := &mockProvisioner{
-		rotateFn: func(_ context.Context, _ string) (string, string, error) {
+		rotateFn: func(_ context.Context, _ string, _ bool) (string, string, error) {
 			return "", "", catalog.ErrNotFound
 		},
 	}
@@ -590,5 +593,45 @@ func TestHandleRotateServiceAccountKey_ServiceAccountNotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusNotFound)
+	}
+}
+
+func TestHandleRotateServiceAccountKey_HardReset(t *testing.T) {
+	cat := newMockCatalog()
+	cat.addTenant(&catalog.Tenant{ID: "tenant-1"})
+	prov := &mockProvisioner{
+		rotateFn: func(_ context.Context, _ string, hardReset bool) (string, string, error) {
+			if !hardReset {
+				t.Error("hardReset = false, want true")
+			}
+			return "forcedkey", "tenant-1_svc", nil
+		},
+	}
+	srv := newTestServer(t, cat, prov)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants/tenant-1/service-account/rotate", strings.NewReader(`{"hard_reset":true}`))
+	req.Header.Set("X-Admin-API-Key", "admin-key")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d; body = %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+}
+
+func TestHandleRotateServiceAccountKey_InvalidBody(t *testing.T) {
+	cat := newMockCatalog()
+	cat.addTenant(&catalog.Tenant{ID: "tenant-1"})
+	srv := newTestServer(t, cat, &mockProvisioner{})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/tenants/tenant-1/service-account/rotate", strings.NewReader("{"))
+	req.Header.Set("X-Admin-API-Key", "admin-key")
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusBadRequest)
 	}
 }

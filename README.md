@@ -89,7 +89,7 @@ Connect to the **Nexus Gateway** using any Postgres-compatible client.
 > The gateway currently denies SSL/TLS (`SSLRequest` -> `N`), so credentials — including long‑lived service-account API keys — are sent in cleartext over the network. Only use API-key authentication over `localhost` during development, or over a secure channel such as a VPN/SSH tunnel or a TLS‑terminating proxy/load balancer. Do **not** expose the gateway with API-key auth directly to untrusted networks until you have end‑to‑end TLS in place.
 >
 > [!TIP]
-> You can retrieve your service ID and rotate your API key via the Control Plane's admin endpoints.
+> You can retrieve your service ID and rotate your API key via the Control Plane's admin endpoints. Key rotation now reuses the current key within a short TTL window; pass `{"hard_reset":true}` to the rotate endpoint to force immediate rotation if credentials are compromised.
 
 ---
 

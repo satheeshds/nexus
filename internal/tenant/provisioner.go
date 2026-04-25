@@ -2,9 +2,14 @@ package tenant
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -15,6 +20,7 @@ import (
 	"github.com/satheeshds/nexus/internal/duckdb"
 	"github.com/satheeshds/nexus/internal/storage"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/hkdf"
 )
 
 // RegisterRequest is the input for provisioning a new tenant.
@@ -31,11 +37,13 @@ type RegisterResponse struct {
 
 // Provisioner orchestrates register/delete of tenants across all subsystems.
 type Provisioner struct {
-	db       *catalog.DB
-	store    *storage.Client
-	pgCfg    config.PostgresConfig
-	minioCfg config.MinIOConfig
-	dlCfg    config.DuckLakeConfig
+	db               *catalog.DB
+	store            *storage.Client
+	pgCfg            config.PostgresConfig
+	minioCfg         config.MinIOConfig
+	dlCfg            config.DuckLakeConfig
+	rotationTTL      time.Duration
+	keyEncryptionKey [32]byte
 }
 
 func NewProvisioner(
@@ -44,14 +52,25 @@ func NewProvisioner(
 	pgCfg config.PostgresConfig,
 	minioCfg config.MinIOConfig,
 	dlCfg config.DuckLakeConfig,
-) *Provisioner {
-	return &Provisioner{
-		db:       db,
-		store:    store,
-		pgCfg:    pgCfg,
-		minioCfg: minioCfg,
-		dlCfg:    dlCfg,
+	rotationTTL time.Duration,
+	keyEncryptionSecret string,
+) (*Provisioner, error) {
+	if rotationTTL <= 0 {
+		rotationTTL = 10 * time.Minute
 	}
+	key, err := deriveEncryptionKey(keyEncryptionSecret)
+	if err != nil {
+		return nil, err
+	}
+	return &Provisioner{
+		db:               db,
+		store:            store,
+		pgCfg:            pgCfg,
+		minioCfg:         minioCfg,
+		dlCfg:            dlCfg,
+		rotationTTL:      rotationTTL,
+		keyEncryptionKey: key,
+	}, nil
 }
 
 // Register provisions a new customer tenant end-to-end.
@@ -136,15 +155,21 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 		return nil, fmt.Errorf("hash service account key: %w", err)
 	}
 	serviceID := tenantID + "_svc"
+	encryptedServiceKey, err := p.encryptAPIKey(serviceAPIKey)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt service account key: %w", err)
+	}
 	svcAccount := catalog.ServiceAccount{
-		ID:             serviceID,
-		TenantID:       tenantID,
-		S3Prefix:       s3Prefix,
-		PGSchema:       pgSchema,
-		MinioAccessKey: minioAccessKey,
-		MinioSecretKey: minioSecretKey,
-		APIKeyHash:     string(serviceKeyHash),
-		CreatedAt:      time.Now(),
+		ID:               serviceID,
+		TenantID:         tenantID,
+		S3Prefix:         s3Prefix,
+		PGSchema:         pgSchema,
+		MinioAccessKey:   minioAccessKey,
+		MinioSecretKey:   minioSecretKey,
+		APIKeyHash:       string(serviceKeyHash),
+		APIKeyCiphertext: encryptedServiceKey,
+		APIKeyRotatedAt:  time.Now(),
+		CreatedAt:        time.Now(),
 	}
 	if err := p.db.InsertServiceAccount(ctx, svcAccount); err != nil {
 		// Rollback: delete customer record, deprovision MinIO, drop schema
@@ -162,7 +187,23 @@ func (p *Provisioner) Register(ctx context.Context, req RegisterRequest) (*Regis
 
 // RotateServiceAccountKey generates a new API key for the tenant's service account,
 // stores its bcrypt hash, and returns the new plain key along with the service account ID.
-func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID string) (string, string, error) {
+func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID string, hardReset bool) (string, string, error) {
+	// Lookup service ID to ensure consistency and return accurate metadata.
+	sa, err := p.db.GetServiceAccountByTenantID(ctx, tenantID)
+	if err != nil {
+		return "", "", fmt.Errorf("get service account: %w", err)
+	}
+
+	now := time.Now()
+	if !hardReset && sa.APIKeyCiphertext != "" && now.Sub(sa.APIKeyRotatedAt) < p.rotationTTL {
+		existingKey, decryptErr := p.decryptAPIKey(sa.APIKeyCiphertext)
+		if decryptErr == nil {
+			slog.Info("service account key reuse within ttl", "tenant", tenantID, "service_id", sa.ID)
+			return existingKey, sa.ID, nil
+		}
+		slog.Warn("decrypt stored service account key failed, rotating key", "tenant", tenantID, "service_id", sa.ID, "err", decryptErr)
+	}
+
 	newKey, err := generateAPIKey()
 	if err != nil {
 		return "", "", fmt.Errorf("generate api key: %w", err)
@@ -171,17 +212,13 @@ func (p *Provisioner) RotateServiceAccountKey(ctx context.Context, tenantID stri
 	if err != nil {
 		return "", "", fmt.Errorf("hash api key: %w", err)
 	}
-
-	// Lookup service ID to ensure consistency and return accurate metadata.
-	sa, err := p.db.GetServiceAccountByTenantID(ctx, tenantID)
+	encryptedKey, err := p.encryptAPIKey(newKey)
 	if err != nil {
-		return "", "", fmt.Errorf("get service account: %w", err)
+		return "", "", fmt.Errorf("encrypt api key: %w", err)
 	}
-
-	if err := p.db.UpdateServiceAccountKeyHash(ctx, tenantID, string(newHash)); err != nil {
-		return "", "", fmt.Errorf("update api key hash: %w", err)
+	if err := p.db.UpdateServiceAccountKey(ctx, tenantID, string(newHash), encryptedKey, now); err != nil {
+		return "", "", fmt.Errorf("update api key: %w", err)
 	}
-
 	slog.Info("service account key rotated", "tenant", tenantID, "service_id", sa.ID)
 	return newKey, sa.ID, nil
 }
@@ -259,4 +296,60 @@ func generateAPIKey() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+func (p *Provisioner) encryptAPIKey(plain string) (string, error) {
+	block, err := aes.NewCipher(p.keyEncryptionKey[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate nonce: %w", err)
+	}
+	ciphertext := gcm.Seal(nil, nonce, []byte(plain), nil)
+	payload := append(nonce, ciphertext...)
+	return base64.StdEncoding.EncodeToString(payload), nil
+}
+
+func (p *Provisioner) decryptAPIKey(encoded string) (string, error) {
+	payload, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(p.keyEncryptionKey[:])
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(payload) < nonceSize {
+		return "", fmt.Errorf("invalid payload length")
+	}
+	nonce, ciphertext := payload[:nonceSize], payload[nonceSize:]
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+func deriveEncryptionKey(secret string) ([32]byte, error) {
+	if len(secret) < 16 {
+		return [32]byte{}, fmt.Errorf("service account key encryption secret must be at least 16 bytes")
+	}
+
+	var key [32]byte
+	reader := hkdf.New(sha256.New, []byte(secret), nil, []byte("nexus-service-account-api-key-encryption"))
+	if _, err := io.ReadFull(reader, key[:]); err != nil {
+		return [32]byte{}, fmt.Errorf("failed to derive encryption key during initialization: %w", err)
+	}
+	return key, nil
 }
