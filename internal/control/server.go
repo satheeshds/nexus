@@ -73,44 +73,60 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
+// skipPathLogger returns a middleware that applies chi's Logger to every
+// request whose path does not match one of the provided skip patterns.
+// This preserves the original Logger→Recoverer ordering so that panics in
+// handlers are still captured and logged correctly.
+func skipPathLogger(skip ...string) func(http.Handler) http.Handler {
+	skipSet := make(map[string]struct{}, len(skip))
+	for _, p := range skip {
+		skipSet[p] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		logger := middleware.Logger(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, skipped := skipSet[r.URL.Path]; skipped {
+				next.ServeHTTP(w, r)
+				return
+			}
+			logger.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (s *Server) buildRouter() *chi.Mux {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	// Logger wraps Recoverer to preserve original ordering; /healthz is silenced.
+	r.Use(skipPathLogger("/healthz"))
 	r.Use(middleware.Recoverer)
 
-	// Health check – no request/response logging to avoid noise.
 	r.Get("/healthz", s.handleHealth)
-
-	// All other routes are logged.
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Logger)
+		r.Use(s.adminMiddleware)
+		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+	})
 
+	r.Route("/api/v1", func(r chi.Router) {
+		// Public
+		r.Post("/register", s.handleRegister)
+		r.Post("/login", s.handleLogin)
+
+		// Authenticated (JWT) - currently nothing here as tenant info moved to admin
 		r.Group(func(r chi.Router) {
-			r.Use(s.adminMiddleware)
-			r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL("/swagger/doc.json")))
+			r.Use(s.jwtMiddleware)
 		})
 
-		r.Route("/api/v1", func(r chi.Router) {
-			// Public
-			r.Post("/register", s.handleRegister)
-			r.Post("/login", s.handleLogin)
-
-			// Authenticated (JWT) - currently nothing here as tenant info moved to admin
-			r.Group(func(r chi.Router) {
-				r.Use(s.jwtMiddleware)
-			})
-
-			// Admin endpoints (X-Admin-API-Key)
-			r.Group(func(r chi.Router) {
-				r.Use(s.adminMiddleware)
-				r.Get("/admin/tenants", s.handleListTenants)
-				r.Get("/admin/tenants/{id}", s.handleGetTenant)
-				r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
-				r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
-				r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
-				r.Post("/admin/query", s.handleAdminQuery)
-			})
+		// Admin endpoints (X-Admin-API-Key)
+		r.Group(func(r chi.Router) {
+			r.Use(s.adminMiddleware)
+			r.Get("/admin/tenants", s.handleListTenants)
+			r.Get("/admin/tenants/{id}", s.handleGetTenant)
+			r.Delete("/admin/tenants/{id}", s.handleDeleteTenant)
+			r.Get("/admin/tenants/{id}/service-account", s.handleGetServiceAccount)
+			r.Post("/admin/tenants/{id}/service-account/rotate", s.handleRotateServiceAccountKey)
+			r.Post("/admin/query", s.handleAdminQuery)
 		})
 	})
 
