@@ -200,7 +200,7 @@ func (db *DB) UpdateServiceAccountKey(ctx context.Context, tenantID, newHash, en
 		WHERE tenant_id = $4
 	`, newHash, encryptedKey, rotatedAt, tenantID)
 	if err != nil {
-		return fmt.Errorf("update api_key_hash for tenant %q: %w", tenantID, err)
+		return fmt.Errorf("update service account API key metadata for tenant %q: %w", tenantID, err)
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("no service account found for tenant %q: %w", tenantID, ErrNotFound)
