@@ -121,6 +121,11 @@ type ServiceAccount struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+const serviceAccountSelectQuery = `
+	SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
+	FROM service_accounts
+`
+
 // InsertServiceAccount stores a new service account record.
 func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
 	rotatedAt := sa.APIKeyRotatedAt
@@ -142,10 +147,7 @@ func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error
 
 // GetServiceAccountByTenantID retrieves the service account for a given customer tenant.
 func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) (*ServiceAccount, error) {
-	sa, err := db.querySingleServiceAccount(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
-		FROM service_accounts WHERE tenant_id = $1
-	`, tenantID)
+	sa, err := db.queryServiceAccountByField(ctx, "tenant_id", tenantID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account for tenant %q: %w", tenantID, ErrNotFound)
@@ -157,10 +159,7 @@ func (db *DB) GetServiceAccountByTenantID(ctx context.Context, tenantID string) 
 
 // GetServiceAccount retrieves a service account by its ID.
 func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
-	sa, err := db.querySingleServiceAccount(ctx, `
-		SELECT id, tenant_id, s3_prefix, pg_schema, minio_access_key, minio_secret_key, api_key_hash, COALESCE(api_key_ciphertext, ''), COALESCE(api_key_rotated_at, created_at), created_at
-		FROM service_accounts WHERE id = $1
-	`, id)
+	sa, err := db.queryServiceAccountByField(ctx, "id", id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("get service account %q: %w", id, ErrNotFound)
@@ -168,6 +167,15 @@ func (db *DB) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount
 		return nil, fmt.Errorf("get service account %q: %w", id, err)
 	}
 	return sa, nil
+}
+
+func (db *DB) queryServiceAccountByField(ctx context.Context, field, arg string) (*ServiceAccount, error) {
+	switch field {
+	case "id", "tenant_id":
+		return db.querySingleServiceAccount(ctx, serviceAccountSelectQuery+" WHERE "+field+" = $1", arg)
+	default:
+		return nil, fmt.Errorf("unsupported service account lookup field %q", field)
+	}
 }
 
 func (db *DB) querySingleServiceAccount(ctx context.Context, query string, arg string) (*ServiceAccount, error) {
