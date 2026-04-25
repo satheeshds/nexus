@@ -124,10 +124,10 @@ type ServiceAccount struct {
 // InsertServiceAccount stores a new service account record.
 func (db *DB) InsertServiceAccount(ctx context.Context, sa ServiceAccount) error {
 	rotatedAt := sa.APIKeyRotatedAt
-	if rotatedAt.IsZero() {
+	switch {
+	case rotatedAt.IsZero() && !sa.CreatedAt.IsZero():
 		rotatedAt = sa.CreatedAt
-	}
-	if rotatedAt.IsZero() {
+	case rotatedAt.IsZero():
 		rotatedAt = time.Now().UTC()
 	}
 	_, err := db.pool.Exec(ctx, `
