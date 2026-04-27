@@ -84,7 +84,7 @@ services:
       NEXUS_AUTH_SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET: ${SERVICE_ACCOUNT_KEY_ENCRYPTION_SECRET:-supersecretkey_change_in_production_service_account_key}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
 
