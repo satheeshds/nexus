@@ -205,6 +205,49 @@ func TestInsertREMatch(t *testing.T) {
 	}
 }
 
+// ── insertPrefixRE (regex matching) ───────────────────────────────────────────
+
+func TestInsertPrefixREMatch(t *testing.T) {
+	// insertPrefixRE is a simple prefix check for any INSERT INTO statement.
+	// In handleDescribe the INSERT…RETURNING case is handled first (returns
+	// early), so insertPrefixRE is only reached for INSERT without RETURNING.
+	matching := []string{
+		"INSERT INTO t (name) VALUES ('hello')",
+		"insert into t (name) VALUES ('hello')",
+		"INSERT INTO lake.orders (product, qty) VALUES ('widget', 5)",
+		"INSERT INTO t (a, b) VALUES (1, 2), (3, 4)",
+		"  INSERT  INTO  t  (a)  VALUES  (1)  ",
+		"INSERT INTO t VALUES (1, 2)",                                              // no explicit column list
+		"INSERT INTO t (a) SELECT 1",                                               // SELECT form
+		"INSERT INTO lake.bill_items (bill_id, description) VALUES ($1, $2)",       // parameterised
+		"INSERT INTO lake.bill_items (bill_id, description)\n\t\tVALUES ($1, $2)",  // multiline with tabs
+		// INSERT…RETURNING also matches (they are handled by the earlier RETURNING
+		// path in handleDescribe and never reach the insertPrefixRE branch).
+		"INSERT INTO t (a) VALUES (1) RETURNING id",
+		"INSERT INTO t (a) VALUES (1) RETURNING id, created_at",
+		"INSERT INTO t (a) SELECT 1 RETURNING id",
+	}
+
+	for _, q := range matching {
+		if !insertPrefixRE.MatchString(q) {
+			t.Errorf("insertPrefixRE should match %q but did not", q)
+		}
+	}
+
+	nonMatching := []string{
+		"SELECT * FROM t",
+		"UPDATE t SET a = 1",
+		"DELETE FROM t",
+		"",
+	}
+
+	for _, q := range nonMatching {
+		if insertPrefixRE.MatchString(q) {
+			t.Errorf("insertPrefixRE should NOT match %q but did", q)
+		}
+	}
+}
+
 // ── escapeSQLString ───────────────────────────────────────────────────────────
 
 func TestEscapeSQLString(t *testing.T) {
