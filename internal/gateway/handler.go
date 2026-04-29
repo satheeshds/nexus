@@ -151,6 +151,16 @@ func (h *handler) handleDescribe(ctx context.Context, objectType byte, query str
 		return
 	}
 
+	// INSERT statements without a RETURNING clause produce no result rows.
+	// Wrapping with SELECT * FROM (INSERT …) is not valid SQL in DuckDB;
+	// send NoData so the client knows there are no columns to expect.
+	// Note: INSERT … RETURNING is already handled above and returns early,
+	// so this branch is only reached for INSERT without RETURNING.
+	if insertPrefixRE.MatchString(query) {
+		_ = h.backend.Send(&pgproto3.NoData{})
+		return
+	}
+
 	// 2. Get RowDescription (execute with LIMIT 0 to get schema)
 	// Some simple SQL optimization here for DuckDB
 	describeQuery := fmt.Sprintf("SELECT * FROM (%s) AS __gateway_describe LIMIT 0", query)
