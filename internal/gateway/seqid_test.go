@@ -208,10 +208,12 @@ func TestInsertREMatch(t *testing.T) {
 // ── insertPrefixRE (regex matching) ───────────────────────────────────────────
 
 func TestInsertPrefixREMatch(t *testing.T) {
-	// insertPrefixRE is a simple prefix check for any INSERT INTO statement.
+	// insertPrefixRE matches any INSERT INTO statement regardless of form,
+	// including CTE-leading and INSERT OR … INTO variants.
 	// In handleDescribe the INSERT…RETURNING case is handled first (returns
 	// early), so insertPrefixRE is only reached for INSERT without RETURNING.
 	matching := []string{
+		// Standard INSERT INTO forms
 		"INSERT INTO t (name) VALUES ('hello')",
 		"insert into t (name) VALUES ('hello')",
 		"INSERT INTO lake.orders (product, qty) VALUES ('widget', 5)",
@@ -221,6 +223,16 @@ func TestInsertPrefixREMatch(t *testing.T) {
 		"INSERT INTO t (a) SELECT 1",                                               // SELECT form
 		"INSERT INTO lake.bill_items (bill_id, description) VALUES ($1, $2)",       // parameterised
 		"INSERT INTO lake.bill_items (bill_id, description)\n\t\tVALUES ($1, $2)",  // multiline with tabs
+		// CTE-leading INSERT forms
+		"WITH cte AS (SELECT 1) INSERT INTO t (a) VALUES (1)",
+		"with cte as (select id from t where x = 1) insert into other (a) values (1)",
+		"WITH\n  cte AS (\n    SELECT * FROM t\n  )\nINSERT INTO t (a) VALUES (1)",
+		// INSERT OR … INTO variants
+		"INSERT OR REPLACE INTO t (a) VALUES (1)",
+		"INSERT OR IGNORE INTO t (a) VALUES (1)",
+		"INSERT OR ROLLBACK INTO t (a) VALUES (1)",
+		"INSERT OR ABORT INTO t (a) VALUES (1)",
+		"INSERT OR FAIL INTO t (a) VALUES (1)",
 		// INSERT…RETURNING also matches (they are handled by the earlier RETURNING
 		// path in handleDescribe and never reach the insertPrefixRE branch).
 		"INSERT INTO t (a) VALUES (1) RETURNING id",
