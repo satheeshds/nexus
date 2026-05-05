@@ -19,6 +19,12 @@ import (
 // 3 – values string (everything after the VALUES keyword)
 var insertRE = regexp.MustCompile(`(?is)^\s*INSERT\s+INTO\s+(\S+)\s*\(([^)]+)\)\s+VALUES\s+(.+)$`)
 
+// insertPrefixRE matches INSERT statements that may not begin directly with
+// INSERT INTO, including CTE-leading forms and INSERT OR ... INTO variants.
+// Used in handleDescribe to detect INSERT statements that produce no result
+// rows and therefore cannot be wrapped with SELECT * FROM (…).
+var insertPrefixRE = regexp.MustCompile(`(?is)^\s*(?:WITH\b[\s\S]*?\b)?INSERT(?:\s+OR\s+(?:REPLACE|ROLLBACK|ABORT|FAIL|IGNORE))?\s+INTO\s+`)
+
 // integerDataTypes is the ordered list of DuckDB integer type names that
 // qualify an 'id' column for automatic sequential ID generation. The slice
 // is kept in deterministic order so that the generated IN(...) clause is
