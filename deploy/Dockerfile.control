@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 FROM golang:1.26-bookworm AS builder
 
 ARG COMMIT_SHA=unknown
@@ -6,22 +6,24 @@ ARG COMMIT_SHA=unknown
 WORKDIR /app
 
 # Install DuckDB build dependencies (required for CGO in tenant provisioner)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ cmake git ca-certificates \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ cmake ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    go mod download
 
-# Install swag tool early so it's cached by Docker
-RUN go install github.com/swaggo/swag/cmd/swag@v1.16.6
+COPY cmd/control ./cmd/control
+COPY docs ./docs
+COPY internal ./internal
+COPY migrations ./migrations
 
-COPY . .
-
-# Regenerate Swagger documentation during build (this is very fast)
-RUN /go/bin/swag init -g cmd/control/main.go --output docs
-
-RUN CGO_ENABLED=1 GOOS=linux go build \
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /bin/nexus-control \
     ./cmd/control
@@ -31,7 +33,9 @@ FROM debian:bookworm-slim
 
 ARG COMMIT_SHA=unknown
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 

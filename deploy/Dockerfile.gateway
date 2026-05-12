@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 FROM golang:1.26-bookworm AS builder
 
 ARG COMMIT_SHA=unknown
@@ -6,16 +6,22 @@ ARG COMMIT_SHA=unknown
 WORKDIR /app
 
 # Install DuckDB build dependencies (required for CGO)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ cmake git ca-certificates \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ cmake ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    go mod download
 
-COPY . .
+COPY cmd/gateway ./cmd/gateway
+COPY internal ./internal
 
-RUN CGO_ENABLED=1 GOOS=linux go build \
+RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
+    --mount=type=cache,target=/root/.cache/go-build,sharing=locked \
+    CGO_ENABLED=1 GOOS=linux go build \
     -ldflags="-s -w" \
     -o /bin/nexus-gateway \
     ./cmd/gateway
@@ -26,7 +32,9 @@ FROM debian:bookworm-slim
 ARG COMMIT_SHA=unknown
 
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates libstdc++6 \
     && rm -rf /var/lib/apt/lists/*
 
