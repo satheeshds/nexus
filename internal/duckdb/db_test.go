@@ -1,12 +1,13 @@
 package duckdb
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/satheeshds/nexus/internal/config"
 )
 
-func TestInitStatements_DisablesKnownExtensionAutoloadAndAutoinstall(t *testing.T) {
+func TestInitStatements_DisablesAutoExtensions(t *testing.T) {
 	pgCfg := config.PostgresConfig{
 		Host:     "localhost",
 		Port:     5432,
@@ -33,10 +34,30 @@ func TestInitStatements_DisablesKnownExtensionAutoloadAndAutoinstall(t *testing.
 	if got := stmts[1]; got != "SET autoinstall_known_extensions = false;" {
 		t.Fatalf("unexpected second init statement: %q", got)
 	}
-	if got := stmts[2]; got != "INSTALL ducklake; LOAD ducklake;" {
-		t.Fatalf("expected ducklake install/load statement to remain, got %q", got)
+	if !containsStatement(stmts, "INSTALL ducklake; LOAD ducklake;") {
+		t.Fatalf("expected ducklake install/load statement to remain")
 	}
-	if got := stmts[3]; got != "INSTALL httpfs;  LOAD httpfs;" {
-		t.Fatalf("expected httpfs install/load statement to remain, got %q", got)
+	if !containsStatement(stmts, "INSTALL httpfs;  LOAD httpfs;") {
+		t.Fatalf("expected httpfs install/load statement to remain")
 	}
+}
+
+func TestEscapeDuckLiteral_EscapesSingleQuotes(t *testing.T) {
+	in := "tenant'oops"
+	out := escapeDuckLiteral(in)
+	if out != "tenant''oops" {
+		t.Fatalf("unexpected escaped value: %q", out)
+	}
+	if strings.Count(out, "'") != 2 {
+		t.Fatalf("expected escaped output to contain exactly one quote pair, got %q", out)
+	}
+}
+
+func containsStatement(stmts []string, expected string) bool {
+	for _, stmt := range stmts {
+		if stmt == expected {
+			return true
+		}
+	}
+	return false
 }

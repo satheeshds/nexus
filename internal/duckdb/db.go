@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 	"github.com/satheeshds/nexus/internal/config"
@@ -90,7 +91,11 @@ func initStatements(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, s3
 			URL_STYLE   'path',
 			USE_SSL     false,
 			REGION      'us-east-1'
-		);`, minioCfg.AccessKey, minioCfg.SecretKey, minioCfg.Endpoint),
+		);`,
+			escapeDuckLiteral(minioCfg.AccessKey),
+			escapeDuckLiteral(minioCfg.SecretKey),
+			escapeDuckLiteral(minioCfg.Endpoint),
+		),
 
 		// ATTACH the tenant's DuckLake catalog using the v1.0 syntax.
 		// DuckLake v1.0 uses the 'ducklake:<catalog-dsn>' prefix instead of
@@ -101,16 +106,20 @@ func initStatements(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, s3
 			DATA_PATH          's3://%s/%s/',
 			AUTOMATIC_MIGRATION TRUE
 		);`,
-			pgCfg.DSN(),
-			pgSchema,
-			minioCfg.Bucket,
-			s3Prefix,
+			escapeDuckLiteral(pgCfg.DSN()),
+			escapeDuckLiteral(pgSchema),
+			escapeDuckLiteral(minioCfg.Bucket),
+			escapeDuckLiteral(s3Prefix),
 		),
 
 		// Set the default schema to 'lake' so tables are created in DuckLake by default
 		// This ensures tables persist to S3 without requiring explicit lake. prefix
 		"SET search_path = 'lake';",
 	}
+}
+
+func escapeDuckLiteral(v string) string {
+	return strings.ReplaceAll(v, "'", "''")
 }
 
 // QueryContext executes a SQL query and returns rows.
