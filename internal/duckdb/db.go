@@ -41,7 +41,40 @@ func OpenForTenant(
 		return nil, fmt.Errorf("open duckdb: %w", err)
 	}
 
-	stmts := []string{
+	stmts := initStatements(pgCfg, minioCfg, s3Prefix, pgSchema)
+
+	for i, stmt := range stmts {
+		slog.Debug("executing DuckDB init statement",
+			"tenant", tenantID,
+			"step", i+1,
+		)
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			db.Close()
+			slog.Error("failed to execute DuckDB init statement",
+				"tenant", tenantID,
+				"step", i+1,
+				"err", err,
+			)
+			return nil, fmt.Errorf("init duckdb step %d: %w", i+1, err)
+		}
+	}
+
+	slog.Info("DuckDB session created successfully",
+		"tenant", tenantID,
+		"s3_prefix", s3Prefix,
+		"data_path", fmt.Sprintf("s3://%s/%s/", minioCfg.Bucket, s3Prefix),
+	)
+
+	return &Conn{db: db, tenantID: tenantID, lakeName: "lake"}, nil
+}
+
+func initStatements(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, s3Prefix, pgSchema string) []string {
+	return []string{
+		// Avoid runtime extension autoload attempts (for example excel) in
+		// restricted-network environments where extensions.duckdb.org is blocked.
+		"SET autoload_known_extensions = false;",
+		"SET autoinstall_known_extensions = false;",
+
 		// Install and load the ducklake extension (v1.0+).
 		// DuckLake v1.0 bundles postgres catalog support, so a separate
 		// postgres extension install/load is no longer required.
@@ -78,30 +111,6 @@ func OpenForTenant(
 		// This ensures tables persist to S3 without requiring explicit lake. prefix
 		"SET search_path = 'lake';",
 	}
-
-	for i, stmt := range stmts {
-		slog.Debug("executing DuckDB init statement",
-			"tenant", tenantID,
-			"step", i+1,
-		)
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			db.Close()
-			slog.Error("failed to execute DuckDB init statement",
-				"tenant", tenantID,
-				"step", i+1,
-				"err", err,
-			)
-			return nil, fmt.Errorf("init duckdb step %d: %w", i+1, err)
-		}
-	}
-
-	slog.Info("DuckDB session created successfully",
-		"tenant", tenantID,
-		"s3_prefix", s3Prefix,
-		"data_path", fmt.Sprintf("s3://%s/%s/", minioCfg.Bucket, s3Prefix),
-	)
-
-	return &Conn{db: db, tenantID: tenantID, lakeName: "lake"}, nil
 }
 
 // QueryContext executes a SQL query and returns rows.
