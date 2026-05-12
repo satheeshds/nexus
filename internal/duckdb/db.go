@@ -81,6 +81,9 @@ func initStatements(pgCfg config.PostgresConfig, minioCfg config.MinIOConfig, s3
 		// postgres extension install/load is no longer required.
 		"INSTALL ducklake; LOAD ducklake;",
 		"INSTALL httpfs;  LOAD httpfs;",
+		// DuckLake ATTACH relies on postgres_scanner. With autoload disabled,
+		// load it explicitly so ATTACH does not fail at runtime.
+		"INSTALL postgres_scanner; LOAD postgres_scanner;",
 
 		// Configure S3/MinIO endpoint globally for this session
 		fmt.Sprintf(`CREATE OR REPLACE SECRET minio_secret (

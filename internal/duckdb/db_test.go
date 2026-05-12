@@ -24,8 +24,8 @@ func TestInitStatements_DisablesAutoExtensions(t *testing.T) {
 	}
 
 	stmts := initStatements(pgCfg, minioCfg, "tenants/test", "ducklake_test")
-	if len(stmts) < 4 {
-		t.Fatalf("expected at least 4 init statements, got %d", len(stmts))
+	if len(stmts) < 5 {
+		t.Fatalf("expected at least 5 init statements, got %d", len(stmts))
 	}
 
 	if got := stmts[0]; got != "SET autoload_known_extensions = false;" {
@@ -37,8 +37,11 @@ func TestInitStatements_DisablesAutoExtensions(t *testing.T) {
 	if !containsStatement(stmts, "INSTALL ducklake; LOAD ducklake;") {
 		t.Fatalf("expected ducklake install/load statement to remain")
 	}
-	if !containsStatement(stmts, "INSTALL httpfs;  LOAD httpfs;") {
+	if !containsStatement(stmts, "INSTALL httpfs; LOAD httpfs;") {
 		t.Fatalf("expected httpfs install/load statement to remain")
+	}
+	if !containsStatement(stmts, "INSTALL postgres_scanner; LOAD postgres_scanner;") {
+		t.Fatalf("expected postgres_scanner install/load statement to remain")
 	}
 }
 
@@ -55,9 +58,13 @@ func TestEscapeDuckLiteral_EscapesSingleQuotes(t *testing.T) {
 
 func containsStatement(stmts []string, expected string) bool {
 	for _, stmt := range stmts {
-		if stmt == expected {
+		if normalizeSQL(stmt) == normalizeSQL(expected) {
 			return true
 		}
 	}
 	return false
+}
+
+func normalizeSQL(stmt string) string {
+	return strings.Join(strings.Fields(stmt), " ")
 }
