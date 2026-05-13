@@ -296,6 +296,31 @@ func TestBuildTypeList(t *testing.T) {
 	}
 }
 
+// ── guessParamCount ───────────────────────────────────────────────────────────
+
+func TestGuessParamCount(t *testing.T) {
+	cases := []struct {
+		sql  string
+		want int
+	}{
+		{"SELECT $1, $2", 2},
+		{"SELECT $1", 1},
+		{"SELECT 1", 0},
+		{"", 0},
+		// Trailing semicolon must not affect the count.
+		{"SELECT COUNT(1) FROM t WHERE id = $1;", 1},
+		// Whitespace after semicolon.
+		{"SELECT $1, $2; ", 2},
+	}
+
+	for _, tc := range cases {
+		got := guessParamCount(tc.sql)
+		if got != tc.want {
+			t.Errorf("guessParamCount(%q) = %d; want %d", tc.sql, got, tc.want)
+		}
+	}
+}
+
 // ── integration test note ─────────────────────────────────────────────────────
 
 func TestRewriteInsertDefaults_RequiresDB(t *testing.T) {
@@ -410,6 +435,61 @@ func TestReplaceIDSubqueries(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("replaceIDSubqueries(%q, %q, %v)\n  got  %q\n  want %q",
 				tc.query, tc.table, tc.ids, got, tc.want)
+		}
+	}
+}
+
+// ── buildDescribeQuery (trailing semicolon handling) ──────────────────────────
+
+// TestBuildDescribeQuerySemicolon verifies that the describe query used in
+// handleDescribe does not include a trailing semicolon inside the subquery,
+// which would cause a parser error ("syntax error at or near ';'").
+func TestBuildDescribeQuerySemicolon(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{
+			// No trailing semicolon – unchanged.
+			"SELECT COUNT(1) FROM t WHERE id = $1",
+			"SELECT * FROM (SELECT COUNT(1) FROM t WHERE id = $1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// Trailing semicolon must be stripped before wrapping.
+			"SELECT COUNT(1) FROM t WHERE id = $1;",
+			"SELECT * FROM (SELECT COUNT(1) FROM t WHERE id = $1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// Trailing semicolon + whitespace.
+			"SELECT 1; ",
+			"SELECT * FROM (SELECT 1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// Multiple trailing semicolons / whitespace.
+			"SELECT $1;;\t\n",
+			"SELECT * FROM (SELECT $1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// Semicolon-only input trims to an empty query.
+			";\n",
+			"SELECT * FROM () AS __gateway_describe LIMIT 0",
+		},
+		{
+			// A trailing semicolon before a line comment must not remain in the subquery.
+			"SELECT 1; -- comment",
+			"SELECT * FROM (SELECT 1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// A trailing semicolon before a block comment must not remain in the subquery.
+			"SELECT 1; /* comment */",
+			"SELECT * FROM (SELECT 1) AS __gateway_describe LIMIT 0",
+		},
+	}
+
+	for _, tc := range cases {
+		got := buildDescribeQuery(tc.input)
+		if got != tc.want {
+			t.Errorf("buildDescribeQuery(%q)\n  got  %q\n  want %q", tc.input, got, tc.want)
 		}
 	}
 }
