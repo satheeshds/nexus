@@ -37,8 +37,7 @@ ARG COMMIT_SHA=unknown
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl libstdc++6 \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates curl libstdc++6
 
 LABEL watchlog.commit-sha="${COMMIT_SHA}"
 LABEL watchlog.monitor="true"
