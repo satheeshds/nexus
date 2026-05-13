@@ -469,6 +469,21 @@ func TestBuildDescribeQuerySemicolon(t *testing.T) {
 			"SELECT $1;;\t\n",
 			"SELECT * FROM (SELECT $1) AS __gateway_describe LIMIT 0",
 		},
+		{
+			// Semicolon-only input trims to an empty query.
+			";\n",
+			"SELECT * FROM () AS __gateway_describe LIMIT 0",
+		},
+		{
+			// A trailing semicolon before a line comment must not remain in the subquery.
+			"SELECT 1; -- comment",
+			"SELECT * FROM (SELECT 1) AS __gateway_describe LIMIT 0",
+		},
+		{
+			// A trailing semicolon before a block comment must not remain in the subquery.
+			"SELECT 1; /* comment */",
+			"SELECT * FROM (SELECT 1) AS __gateway_describe LIMIT 0",
+		},
 	}
 
 	for _, tc := range cases {
