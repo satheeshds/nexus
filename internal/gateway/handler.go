@@ -611,12 +611,18 @@ func guessParamCount(sql string) int {
 }
 
 // buildDescribeQuery wraps query in a zero-row SELECT so the gateway can
-// inspect column types without executing the real query.  Any trailing
+// inspect column types without executing the real query. Any trailing
 // semicolons and whitespace are stripped first: a semicolon inside a
-// subquery causes a parser error ("syntax error at or near ';'").
+// subquery causes a parser error ("syntax error at or near ';'"). If the
+// trimmed query is empty, return an empty string so callers can short-circuit
+// describe handling without sending invalid SQL to DuckDB.
 func buildDescribeQuery(query string) string {
-	return fmt.Sprintf("SELECT * FROM (%s) AS __gateway_describe LIMIT 0",
-		strings.TrimRight(query, "; \t\n\r"))
+	trimmed := strings.TrimRight(query, "; \t\n\r")
+	if trimmed == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("SELECT * FROM (%s) AS __gateway_describe LIMIT 0", trimmed)
 }
 
 func toBinary(v any) []byte {
