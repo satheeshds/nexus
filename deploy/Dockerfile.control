@@ -9,8 +9,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ cmake ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    gcc g++ cmake ca-certificates
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
