@@ -1,0 +1,66 @@
+{
+	"name": "Nexus Dev Environment",
+	"dockerComposeFile": [
+		// "../docker-compose.yml",
+		"docker-compose.yml"
+	],
+	"service": "app",
+	"workspaceFolder": "/workspace",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"go.toolsManagement.checkForUpdates": "local",
+				"go.useLanguageServer": true,
+				"go.gopath": "/go",
+				"go.goroot": "/usr/local/go",
+				"terminal.integrated.defaultProfile.linux": "bash"
+			},
+			"extensions": [
+				"golang.go",
+				"ms-azuretools.vscode-docker",
+				"tamasfe.even-better-toml",
+				"editorconfig.editorconfig",
+				"humao.rest-client",
+				"ckotzbauer.duckdb"
+			]
+		}
+	},
+	"remoteUser": "root",
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"configureZshAsDefaultShell": true,
+			"makeReadonly": false
+		}
+	},
+	"forwardPorts": [
+		8080,
+		5432,
+		5433,
+		9000,
+		9001
+	],
+	"portsAttributes": {
+		"5432": {
+			"label": "PostgreSQL Catalog",
+			"onAutoForward": "silent"
+		},
+		"5433": {
+			"label": "Nexus Gateway (pgwire)",
+			"onAutoForward": "notify"
+		},
+		"8080": {
+			"label": "Nexus Control API",
+			"onAutoForward": "notify"
+		},
+		"9000": {
+			"label": "MinIO API",
+			"onAutoForward": "silent"
+		},
+		"9001": {
+			"label": "MinIO Console",
+			"onAutoForward": "notify"
+		}
+	},
+	"postCreateCommand": "go mod download"
+}
